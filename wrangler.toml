@@ -1,0 +1,23 @@
+name = "ens-metadata-flarecloud"
+main = "src/index.ts"
+compatibility_date = "2026-04-19"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+ETH_RPC_URL = "https://cloudflare-eth.com"
+SEPOLIA_RPC_URL = "https://sepolia.drpc.org"
+HOLESKY_RPC_URL = "https://holesky.drpc.org"
+IPFS_GATEWAYS = "https://w3s.link,https://nftstorage.link,https://ipfs.io"
+SUBGRAPH_URL_MAINNET = "https://api.thegraph.com/subgraphs/name/ensdomains/ens"
+SUBGRAPH_URL_SEPOLIA = "https://api.studio.thegraph.com/query/49574/enssepolia/version/latest"
+SUBGRAPH_URL_HOLESKY = "https://api.studio.thegraph.com/query/49574/ensholesky/version/latest"
+
+[[r2_buckets]]
+binding = "IPFS_CACHE"
+bucket_name = "ens-metadata-ipfs-cache"
+preview_bucket_name = "ens-metadata-ipfs-cache"
+
+[[kv_namespaces]]
+binding = "RESOLVER_CACHE"
+id = "3b327b3540844464a00513b8510d9ed9"
+preview_id = "00000000000000000000000000000000"
