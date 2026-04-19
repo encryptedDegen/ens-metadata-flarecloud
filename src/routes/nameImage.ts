@@ -14,7 +14,7 @@ import {
 
 export const nameImageRoutes = new OpenAPIHono<{ Bindings: Env }>();
 
-const CACHE_VERSION = "v15";
+const CACHE_VERSION = "v26";
 const ACTIVE_MAX_AGE = 60 * 60 * 24 * 365;
 const FALLBACK_MAX_AGE = 60 * 60;
 const PNG_CONTENT_TYPE = "image/png";

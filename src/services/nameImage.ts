@@ -1,5 +1,6 @@
 import { ImageResponse } from 'workers-og'
 import { ens_beautify, ens_normalize } from '@adraffy/ens-normalize'
+import emojiRegex from 'emoji-regex'
 import SatoshiBlack from '../fonts/Satoshi-Black.otf'
 
 export type NameImageInput = {
@@ -43,8 +44,258 @@ function svgDataUri(svg: string): string {
 	return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`
 }
 
-function stripZwj(s: string): string {
-	return s.replaceAll('\u200D', '')
+const APPLE_EMOJI_BASE =
+	'https://cdn.jsdelivr.net/gh/iamcal/emoji-data@master/img-apple-64'
+
+const GOOGLE_FONT_UA =
+	'Mozilla/5.0 (Macintosh; U; Intel Mac OS X 10_6_8; de-at) AppleWebKit/533.21.1 (KHTML, like Gecko) Version/5.0.5 Safari/533.21.1'
+
+type FallbackFont = {
+	name: string
+	family: string
+	weight: number
+	test: RegExp
+}
+
+const FALLBACK_FONTS: FallbackFont[] = [
+	{
+		name: 'NotoSym',
+		family: 'Noto Sans Symbols 2',
+		weight: 700,
+		test: /[\u2100-\u214F\u2190-\u21FF\u2200-\u22FF\u2300-\u23FF\u2500-\u257F\u25A0-\u25FF\u2600-\u27BF\u2B00-\u2BFF]/u,
+	},
+	{
+		name: 'NotoSC',
+		family: 'Noto Sans SC',
+		weight: 900,
+		test: /[\u2E80-\u9FFF\uF900-\uFAFF\uFF00-\uFFEF\u3000-\u303F\u3400-\u4DBF]/u,
+	},
+	{
+		name: 'NotoJP',
+		family: 'Noto Sans JP',
+		weight: 900,
+		test: /[\u3040-\u309F\u30A0-\u30FF\u31F0-\u31FF]/u,
+	},
+	{
+		name: 'NotoKR',
+		family: 'Noto Sans KR',
+		weight: 900,
+		test: /[\u1100-\u11FF\u3130-\u318F\uA960-\uA97F\uAC00-\uD7AF]/u,
+	},
+	{
+		name: 'NotoAR',
+		family: 'Noto Sans Arabic',
+		weight: 700,
+		test: /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/u,
+	},
+	{
+		name: 'NotoHE',
+		family: 'Noto Sans Hebrew',
+		weight: 700,
+		test: /[\u0590-\u05FF\uFB1D-\uFB4F]/u,
+	},
+	{
+		name: 'NotoETH',
+		family: 'Noto Sans Ethiopic',
+		weight: 700,
+		test: /[\u1200-\u137F\u1380-\u139F\u2D80-\u2DDF]/u,
+	},
+	{
+		name: 'NotoTH',
+		family: 'Noto Sans Thai',
+		weight: 700,
+		test: /[\u0E00-\u0E7F]/u,
+	},
+	{
+		name: 'NotoSansExt',
+		family: 'Noto Sans',
+		weight: 700,
+		test: /[\u0370-\u03FF\u0400-\u04FF\u0500-\u052F\u0530-\u058F]/u,
+	},
+]
+
+type LoadedFont = {
+	name: string
+	data: ArrayBuffer
+	weight: number
+	style: 'normal'
+}
+
+async function loadGoogleFontSubset(
+	family: string,
+	weight: number,
+	text: string,
+): Promise<ArrayBuffer | null> {
+	if (!text) return null
+	const unique = [...new Set(text)].join('')
+	const url = `https://fonts.googleapis.com/css2?family=${encodeURIComponent(
+		family,
+	)}:wght@${weight}&text=${encodeURIComponent(unique)}`
+	try {
+		const cssRes = await fetch(url, {
+			headers: { 'User-Agent': GOOGLE_FONT_UA },
+			cf: { cacheTtl: 86400, cacheEverything: true },
+		} as RequestInit)
+		if (!cssRes.ok) return null
+		const css = await cssRes.text()
+		const match = css.match(/src:\s*url\((https:\/\/[^)]+)\)/)
+		if (!match) return null
+		const fontRes = await fetch(match[1]!, {
+			cf: { cacheTtl: 86400, cacheEverything: true },
+		} as RequestInit)
+		if (!fontRes.ok) return null
+		return await fontRes.arrayBuffer()
+	} catch {
+		return null
+	}
+}
+
+/**
+ * Try rendering the given characters with the given font. Satori's opentype.js
+ * fork can't parse some OpenType features (e.g. Arabic contextual shaping via
+ * lookupType 5 / substFormat 3) and throws only when it actually lays out a
+ * string that triggers the lookup. We catch that here so broken subsets are
+ * never passed to the real render.
+ */
+async function isFontRenderable(
+	font: LoadedFont,
+	chars: string,
+): Promise<boolean> {
+	const probe = {
+		type: 'div',
+		props: {
+			style: {
+				display: 'flex',
+				fontFamily: font.name,
+				fontSize: '16px',
+				width: '500px',
+				height: '50px',
+			},
+			children: chars,
+		},
+	}
+	try {
+		const res = new ImageResponse(probe as never, {
+			width: 500,
+			height: 50,
+			format: 'png',
+			fonts: [font],
+		})
+		await res.arrayBuffer()
+		return true
+	} catch {
+		return false
+	}
+}
+
+async function loadFallbackFonts(text: string): Promise<LoadedFont[]> {
+	if (!text) return []
+	const results = await Promise.all(
+		FALLBACK_FONTS.map(async (f) => {
+			const chars = Array.from(text)
+				.filter((c) => f.test.test(c))
+				.join('')
+			if (!chars) return null
+			const data = await loadGoogleFontSubset(f.family, f.weight, chars)
+			if (!data) return null
+			const font: LoadedFont = {
+				name: f.name,
+				data,
+				weight: f.weight,
+				style: 'normal',
+			}
+			if (!(await isFontRenderable(font, chars))) return null
+			return font
+		}),
+	)
+	return results.filter((f): f is LoadedFont => f !== null)
+}
+
+function emojiCodepointPath(emoji: string): string {
+	return Array.from(emoji)
+		.map((c) => c.codePointAt(0)!.toString(16))
+		.join('-')
+}
+
+async function fetchEmojiBytes(path: string): Promise<ArrayBuffer | null> {
+	try {
+		const res = await fetch(`${APPLE_EMOJI_BASE}/${path}.png`, {
+			cf: { cacheTtl: 86400, cacheEverything: true },
+		} as RequestInit)
+		if (!res.ok) return null
+		return await res.arrayBuffer()
+	} catch {
+		return null
+	}
+}
+
+async function fetchEmojiDataUri(emoji: string): Promise<string | null> {
+	const full = emojiCodepointPath(emoji)
+	const stripped = emojiCodepointPath(emoji.replaceAll('\uFE0F', ''))
+	const bytes =
+		(await fetchEmojiBytes(full)) ??
+		(full !== stripped ? await fetchEmojiBytes(stripped) : null)
+	if (!bytes) return null
+	return `data:image/png;base64,${bytesToBase64(bytes)}`
+}
+
+async function prepareEmojis(
+	texts: Array<string | null>,
+): Promise<Map<string, string>> {
+	const regex = emojiRegex()
+	const unique = new Set<string>()
+	for (const text of texts) {
+		if (!text) continue
+		for (const m of text.matchAll(regex)) unique.add(m[0])
+	}
+	if (unique.size === 0) return new Map()
+	const entries = await Promise.all(
+		[...unique].map(
+			async (emoji) => [emoji, await fetchEmojiDataUri(emoji)] as const,
+		),
+	)
+	const results = new Map<string, string>()
+	for (const [emoji, uri] of entries) {
+		if (uri) results.set(emoji, uri)
+	}
+	return results
+}
+
+function textSpan(text: string): Element {
+	return { type: 'span', props: { children: text } }
+}
+
+function splitText(
+	text: string,
+	fontSize: number,
+	emojis: Map<string, string>,
+): Element[] {
+	const regex = emojiRegex()
+	const parts: Element[] = []
+	let lastIndex = 0
+	for (const match of text.matchAll(regex)) {
+		const start = match.index!
+		if (start > lastIndex) {
+			const before = stripLooseFE0F(text.slice(lastIndex, start))
+			if (before) parts.push(textSpan(before))
+		}
+		const uri = emojis.get(match[0])
+		if (uri) {
+			parts.push({
+				type: 'img',
+				props: { src: uri, width: fontSize, height: fontSize },
+			})
+		} else {
+			parts.push(textSpan(match[0]))
+		}
+		lastIndex = start + match[0].length
+	}
+	if (lastIndex < text.length) {
+		const tail = stripLooseFE0F(text.slice(lastIndex))
+		if (tail) parts.push(textSpan(tail))
+	}
+	if (parts.length === 0) parts.push(textSpan(''))
+	return parts
 }
 
 function isNormalized(name: string): boolean {
@@ -79,29 +330,33 @@ function truncateSubdomain(text: string): string {
 	return `${text.slice(0, MAX_CHARS - 4)}...`
 }
 
-function fontSizeForWidth(
-	text: string,
-	targetWidth: number,
-	cap: number,
-): number {
-	const approxCharAdvance = 0.56
-	if (text.length === 0) return cap
-	const size = Math.floor(targetWidth / (text.length * approxCharAdvance))
-	return Math.min(cap, size)
+const NAME_FONT_CAP = 128
+const TEXT_CHAR_ADVANCE = 0.56
+const EMOJI_CHAR_ADVANCE = 1.0
+
+function stripLooseFE0F(text: string): string {
+	return text.replaceAll('\uFE0F', '')
 }
 
-const NAME_FONT_CAP = 128
+/** Width of `text` (advance units at font-size 1) — emojis count as 1em, text as ~0.56em per UTF-16 unit. */
+function widthPerEm(text: string): number {
+	const regex = emojiRegex()
+	let width = 0
+	let lastIndex = 0
+	for (const match of text.matchAll(regex)) {
+		const before = stripLooseFE0F(text.slice(lastIndex, match.index!))
+		width += before.length * TEXT_CHAR_ADVANCE
+		width += EMOJI_CHAR_ADVANCE
+		lastIndex = match.index! + match[0].length
+	}
+	width += stripLooseFE0F(text.slice(lastIndex)).length * TEXT_CHAR_ADVANCE
+	return width
+}
 
 function nameFontSize(text: string): number {
-	if (text.length > LINE_SPLIT_CHARS) {
-		const halfLen = Math.ceil(text.length / 2)
-		return fontSizeForWidth(
-			' '.repeat(halfLen),
-			MAX_TEXT_WIDTH,
-			NAME_FONT_CAP,
-		)
-	}
-	return fontSizeForWidth(text, MAX_TEXT_WIDTH, NAME_FONT_CAP)
+	const em = widthPerEm(text)
+	if (em === 0) return NAME_FONT_CAP
+	return Math.min(NAME_FONT_CAP, Math.floor(MAX_TEXT_WIDTH / em))
 }
 
 function bytesToBase64(buf: ArrayBuffer): string {
@@ -136,11 +391,12 @@ function div(style: Style, children?: Element[] | string): Element {
 	}
 }
 
-function buildTree(input: NameImageInput): Element {
+function buildTree(
+	input: NameImageInput,
+	emojis: Map<string, string>,
+): Element {
 	const normalized = isNormalized(input.name)
-	const displayName = stripZwj(
-		normalized ? ens_beautify(input.name) : input.name,
-	)
+	const displayName = normalized ? ens_beautify(input.name) : input.name
 	const { parent, subdomain } = splitSubdomain(displayName)
 
 	const parentText = truncateParent(parent)
@@ -192,9 +448,12 @@ function buildTree(input: NameImageInput): Element {
 			letterSpacing: '-0.02em',
 			textShadow: '0 4px 8px rgba(0, 0, 0, 0.3)',
 			maxWidth: `${MAX_TEXT_WIDTH}px`,
+			display: 'flex',
+			flexDirection: 'row',
+			alignItems: 'center',
 			...(hasSubdomain ? { marginTop: '24px' } : {}),
 		},
-		parentText,
+		splitText(parentText, parentFont, emojis),
 	)
 
 	const bottomChildren: Element[] = []
@@ -210,8 +469,11 @@ function buildTree(input: NameImageInput): Element {
 					letterSpacing: '-0.02em',
 					textShadow: '0 4px 8px rgba(0, 0, 0, 0.3)',
 					maxWidth: `${MAX_TEXT_WIDTH}px`,
+					display: 'flex',
+					flexDirection: 'row',
+					alignItems: 'center',
 				},
-				subdomainText,
+				splitText(subdomainText, subFont, emojis),
 			),
 		)
 	}
@@ -268,7 +530,15 @@ function buildTree(input: NameImageInput): Element {
 export async function renderNameImage(
 	input: NameImageInput,
 ): Promise<ArrayBuffer> {
-	const response = new ImageResponse(buildTree(input) as never, {
+	const normalized = isNormalized(input.name)
+	const displayName = normalized ? ens_beautify(input.name) : input.name
+	const { parent, subdomain } = splitSubdomain(displayName)
+	const [emojis, fallbackFonts] = await Promise.all([
+		prepareEmojis([parent, subdomain]),
+		loadFallbackFonts(displayName),
+	])
+
+	const response = new ImageResponse(buildTree(input, emojis) as never, {
 		width: SIZE,
 		height: SIZE,
 		format: 'png',
@@ -280,6 +550,7 @@ export async function renderNameImage(
 				weight: 900,
 				style: 'normal',
 			},
+			...fallbackFonts,
 		],
 	})
 	return await response.arrayBuffer()
