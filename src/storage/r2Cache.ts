@@ -70,3 +70,35 @@ export async function putHttps(
     customMetadata: custom,
   });
 }
+
+export type GeneratedImageKey = {
+  network: string;
+  contract: string;
+  tokenHex: string;
+  avatarHash: string | null;
+  version: string;
+};
+
+function generatedKey(k: GeneratedImageKey): string {
+  const avatar = k.avatarHash ?? "none";
+  return `generated/${k.network}/${k.contract.toLowerCase()}/${k.tokenHex}/${avatar}/${k.version}.png`;
+}
+
+export async function getGenerated(
+  env: Env,
+  k: GeneratedImageKey,
+): Promise<CachedImage | null> {
+  return readObject(await env.IPFS_CACHE.get(generatedKey(k)));
+}
+
+export async function putGenerated(
+  env: Env,
+  k: GeneratedImageKey,
+  bytes: ArrayBuffer,
+  contentType: string,
+): Promise<void> {
+  await env.IPFS_CACHE.put(generatedKey(k), bytes, {
+    httpMetadata: { contentType },
+    customMetadata: { fetchedAt: String(Date.now()) },
+  });
+}

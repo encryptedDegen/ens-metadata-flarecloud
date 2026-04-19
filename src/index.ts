@@ -6,6 +6,7 @@ import type { Env } from "./env";
 import { HttpError } from "./lib/errors";
 import { avatarRoutes, headerRoutes } from "./routes/images";
 import { metadataRoutes } from "./routes/metadata";
+import { nameImageRoutes } from "./routes/nameImage";
 import { queryNFTRoutes } from "./routes/queryNFT";
 
 const app = new OpenAPIHono<{ Bindings: Env }>();
@@ -15,6 +16,7 @@ app.use("*", cors());
 app.route("/", avatarRoutes);
 app.route("/", headerRoutes);
 app.route("/", queryNFTRoutes);
+app.route("/", nameImageRoutes);
 app.route("/", metadataRoutes);
 
 app.doc("/openapi.json", {

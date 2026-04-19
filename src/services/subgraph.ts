@@ -44,12 +44,18 @@ const DOMAIN_BY_NAMEHASH = gql`
   }
 `;
 
-function client(network: NetworkConfig, env: Env): GraphQLClient {
-  const headers: Record<string, string> = {};
-  if (env.THE_GRAPH_API_KEY) {
-    headers.Authorization = `Bearer ${env.THE_GRAPH_API_KEY}`;
+function resolveSubgraphUrl(url: string, env: Env): string {
+  if (!url.includes("{API_KEY}")) return url;
+  if (!env.THE_GRAPH_API_KEY) {
+    throw new Error(
+      "subgraph URL requires THE_GRAPH_API_KEY but the env var is not set",
+    );
   }
-  return new GraphQLClient(network.subgraphUrl, { headers });
+  return url.replaceAll("{API_KEY}", env.THE_GRAPH_API_KEY);
+}
+
+function client(network: NetworkConfig, env: Env): GraphQLClient {
+  return new GraphQLClient(resolveSubgraphUrl(network.subgraphUrl, env));
 }
 
 export async function queryDomainByLabelhash(

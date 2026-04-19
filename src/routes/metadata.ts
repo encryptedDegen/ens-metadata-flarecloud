@@ -1,17 +1,8 @@
 import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
-import { isAddress, keccak256, namehash, toHex } from "viem";
+import { keccak256, namehash } from "viem";
 import type { Env } from "../env";
-import { getNetwork } from "../lib/networks";
-import { badRequest, notFound } from "../lib/errors";
-import {
-  queryDomainByLabelhash,
-  queryDomainByNamehash,
-} from "../services/subgraph";
-import {
-  BASE_REGISTRAR_V1,
-  NAME_WRAPPER_V2,
-  CACHE_API_MAX_AGE,
-} from "../constants";
+import { resolveDomain } from "../services/domain";
+import { CACHE_API_MAX_AGE } from "../constants";
 import {
   AddressParam,
   ErrorSchema,
@@ -20,6 +11,7 @@ import {
   TokenIdParam,
   type MetadataAttribute,
 } from "../schemas";
+import { ens_normalize } from "@adraffy/ens-normalize";
 
 export const metadataRoutes = new OpenAPIHono<{ Bindings: Env }>();
 
@@ -45,39 +37,22 @@ const route = createRoute({
   },
 });
 
-function tokenIdToHex(tokenId: string): `0x${string}` {
-  if (tokenId.startsWith("0x")) return tokenId as `0x${string}`;
+function isNormalized(name: string): boolean {
   try {
-    return toHex(BigInt(tokenId), { size: 32 });
+    return ens_normalize(name) === name;
   } catch {
-    throw badRequest(`invalid tokenId: ${tokenId}`);
+    return false;
   }
-}
-
-function contractKind(contract: string): "v1" | "v2" | null {
-  const c = contract.toLowerCase();
-  if (c === BASE_REGISTRAR_V1.toLowerCase()) return "v1";
-  if (c === NAME_WRAPPER_V2.toLowerCase()) return "v2";
-  return null;
 }
 
 metadataRoutes.openapi(route, async (c) => {
   const { network: networkName, contract, tokenId: tokenIdRaw } = c.req.valid("param");
-
-  const network = getNetwork(c.env, networkName);
-  if (!network) throw badRequest(`unknown network: ${networkName}`);
-  if (!isAddress(contract)) throw badRequest("invalid contract address");
-
-  const kind = contractKind(contract);
-  if (!kind) throw badRequest(`unsupported contract: ${contract}`);
-
-  const tokenHex = tokenIdToHex(tokenIdRaw);
-  const record =
-    kind === "v1"
-      ? await queryDomainByLabelhash(network, c.env, tokenHex)
-      : await queryDomainByNamehash(network, c.env, tokenHex);
-
-  if (!record) throw notFound(`domain not found for token ${tokenIdRaw}`);
+  const { kind, tokenHex, record } = await resolveDomain(
+    c.env,
+    networkName,
+    contract,
+    tokenIdRaw,
+  );
 
   const name = record.name ?? (record.labelName ? `${record.labelName}.eth` : null);
   const registration = record.registration;
@@ -115,10 +90,17 @@ metadataRoutes.openapi(route, async (c) => {
         ? namehash(name)
         : tokenHex;
 
+  const origin = new URL(c.req.url).origin;
+  const image = `${origin}/${networkName}/${contract}/${tokenIdRaw}/image`;
+  const normalized = name ? isNormalized(name) : false;
+  const backgroundImage = normalized
+    ? `${origin}/${networkName}/avatar/${encodeURIComponent(name!)}`
+    : null;
+
   c.header("cache-control", `public, max-age=${CACHE_API_MAX_AGE}`);
   return c.json(
     {
-      is_normalized: !!name,
+      is_normalized: normalized,
       name: name ?? "unknown.eth",
       description: name
         ? `${name}, an ENS name.`
@@ -127,9 +109,9 @@ metadataRoutes.openapi(route, async (c) => {
       name_length: record.labelName?.length ?? null,
       url: name ? `https://app.ens.domains/name/${name}` : null,
       version: kind === "v1" ? 1 : 2,
-      background_image: null,
-      image: null,
-      image_url: null,
+      background_image: backgroundImage,
+      image,
+      image_url: image,
       token_hash: tokenHash,
     },
     200,
