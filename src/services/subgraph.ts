@@ -2,6 +2,7 @@ import { GraphQLClient, gql } from "graphql-request";
 import type { NetworkConfig } from "../lib/networks";
 import type { Env } from "../env";
 import { ETH_NAMEHASH } from "../constants";
+import { HttpError } from "../lib/errors";
 
 export type DomainRecord = {
   id: string;
@@ -47,8 +48,10 @@ const DOMAIN_BY_NAMEHASH = gql`
 function resolveSubgraphUrl(url: string, env: Env): string {
   if (!url.includes("{API_KEY}")) return url;
   if (!env.THE_GRAPH_API_KEY) {
-    throw new Error(
+    throw new HttpError(
+      500,
       "subgraph URL requires THE_GRAPH_API_KEY but the env var is not set",
+      "missing_graph_api_key",
     );
   }
   return url.replaceAll("{API_KEY}", env.THE_GRAPH_API_KEY);

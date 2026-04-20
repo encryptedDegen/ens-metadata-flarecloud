@@ -57,12 +57,22 @@ type FallbackFont = {
 	test: RegExp
 }
 
+// Ordered by likelihood of tripping the opentype.js shaping bug — unlikely
+// first, Arabic last. On `lookupType`/`OpenType signature` errors we drop
+// from the tail of this list until rendering succeeds, so complex-shaping
+// fonts are the first to go.
 const FALLBACK_FONTS: FallbackFont[] = [
 	{
 		name: 'NotoSym',
 		family: 'Noto Sans Symbols 2',
 		weight: 700,
 		test: /[\u2100-\u214F\u2190-\u21FF\u2200-\u22FF\u2300-\u23FF\u2500-\u257F\u25A0-\u25FF\u2600-\u27BF\u2B00-\u2BFF]/u,
+	},
+	{
+		name: 'NotoSansExt',
+		family: 'Noto Sans',
+		weight: 700,
+		test: /[\u0370-\u03FF\u0400-\u04FF\u0500-\u052F\u0530-\u058F]/u,
 	},
 	{
 		name: 'NotoSC',
@@ -83,18 +93,6 @@ const FALLBACK_FONTS: FallbackFont[] = [
 		test: /[\u1100-\u11FF\u3130-\u318F\uA960-\uA97F\uAC00-\uD7AF]/u,
 	},
 	{
-		name: 'NotoAR',
-		family: 'Noto Sans Arabic',
-		weight: 700,
-		test: /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/u,
-	},
-	{
-		name: 'NotoHE',
-		family: 'Noto Sans Hebrew',
-		weight: 700,
-		test: /[\u0590-\u05FF\uFB1D-\uFB4F]/u,
-	},
-	{
 		name: 'NotoETH',
 		family: 'Noto Sans Ethiopic',
 		weight: 700,
@@ -107,10 +105,16 @@ const FALLBACK_FONTS: FallbackFont[] = [
 		test: /[\u0E00-\u0E7F]/u,
 	},
 	{
-		name: 'NotoSansExt',
-		family: 'Noto Sans',
+		name: 'NotoHE',
+		family: 'Noto Sans Hebrew',
 		weight: 700,
-		test: /[\u0370-\u03FF\u0400-\u04FF\u0500-\u052F\u0530-\u058F]/u,
+		test: /[\u0590-\u05FF\uFB1D-\uFB4F]/u,
+	},
+	{
+		name: 'NotoAR',
+		family: 'Noto Sans Arabic',
+		weight: 700,
+		test: /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/u,
 	},
 ]
 
@@ -150,44 +154,6 @@ async function loadGoogleFontSubset(
 	}
 }
 
-/**
- * Try rendering the given characters with the given font. Satori's opentype.js
- * fork can't parse some OpenType features (e.g. Arabic contextual shaping via
- * lookupType 5 / substFormat 3) and throws only when it actually lays out a
- * string that triggers the lookup. We catch that here so broken subsets are
- * never passed to the real render.
- */
-async function isFontRenderable(
-	font: LoadedFont,
-	chars: string,
-): Promise<boolean> {
-	const probe = {
-		type: 'div',
-		props: {
-			style: {
-				display: 'flex',
-				fontFamily: font.name,
-				fontSize: '16px',
-				width: '500px',
-				height: '50px',
-			},
-			children: chars,
-		},
-	}
-	try {
-		const res = new ImageResponse(probe as never, {
-			width: 500,
-			height: 50,
-			format: 'png',
-			fonts: [font],
-		})
-		await res.arrayBuffer()
-		return true
-	} catch {
-		return false
-	}
-}
-
 async function loadFallbackFonts(text: string): Promise<LoadedFont[]> {
 	if (!text) return []
 	const results = await Promise.all(
@@ -198,14 +164,12 @@ async function loadFallbackFonts(text: string): Promise<LoadedFont[]> {
 			if (!chars) return null
 			const data = await loadGoogleFontSubset(f.family, f.weight, chars)
 			if (!data) return null
-			const font: LoadedFont = {
+			return {
 				name: f.name,
 				data,
 				weight: f.weight,
-				style: 'normal',
+				style: 'normal' as const,
 			}
-			if (!(await isFontRenderable(font, chars))) return null
-			return font
 		}),
 	)
 	return results.filter((f): f is LoadedFont => f !== null)
@@ -527,6 +491,11 @@ function buildTree(
 	return div(rootStyle, rootChildren)
 }
 
+function isFontParseError(err: unknown): boolean {
+	const msg = err instanceof Error ? err.message : String(err)
+	return /lookupType|OpenType signature|substFormat/.test(msg)
+}
+
 export async function renderNameImage(
 	input: NameImageInput,
 ): Promise<ArrayBuffer> {
@@ -538,20 +507,27 @@ export async function renderNameImage(
 		loadFallbackFonts(displayName),
 	])
 
-	const response = new ImageResponse(buildTree(input, emojis) as never, {
-		width: SIZE,
-		height: SIZE,
-		format: 'png',
-		emoji: 'twemoji',
-		fonts: [
-			{
-				name: 'Satoshi',
-				data: SatoshiBlack,
-				weight: 900,
-				style: 'normal',
-			},
-			...fallbackFonts,
-		],
-	})
-	return await response.arrayBuffer()
+	const tree = buildTree(input, emojis)
+	const satoshi = {
+		name: 'Satoshi' as const,
+		data: SatoshiBlack,
+		weight: 900,
+		style: 'normal' as const,
+	}
+	let fonts: Array<typeof satoshi | LoadedFont> = [satoshi, ...fallbackFonts]
+
+	for (;;) {
+		try {
+			const response = new ImageResponse(tree as never, {
+				width: SIZE,
+				height: SIZE,
+				format: 'png',
+				fonts,
+			})
+			return await response.arrayBuffer()
+		} catch (err) {
+			if (!isFontParseError(err) || fonts.length <= 1) throw err
+			fonts = fonts.slice(0, -1)
+		}
+	}
 }
