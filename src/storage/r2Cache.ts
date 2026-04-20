@@ -7,6 +7,7 @@ export type CachedImage = {
   etag?: string;
   lastModified?: string;
   fetchedAt: number;
+  expired?: boolean;
 };
 
 function ipfsKey(ref: IpfsRef): string {
@@ -31,6 +32,7 @@ async function readObject(obj: R2ObjectBody | null): Promise<CachedImage | null>
     etag: meta.etag,
     lastModified: meta.lastModified,
     fetchedAt: Number(meta.fetchedAt ?? "0"),
+    expired: meta.expired === "1",
   };
 }
 
@@ -75,13 +77,11 @@ export type GeneratedImageKey = {
   network: string;
   contract: string;
   tokenHex: string;
-  avatarHash: string | null;
   version: string;
 };
 
 function generatedKey(k: GeneratedImageKey): string {
-  const avatar = k.avatarHash ?? "none";
-  return `generated/${k.network}/${k.contract.toLowerCase()}/${k.tokenHex}/${avatar}/${k.version}.png`;
+  return `generated/${k.network}/${k.contract.toLowerCase()}/${k.tokenHex}/${k.version}.png`;
 }
 
 export async function getGenerated(
@@ -96,9 +96,13 @@ export async function putGenerated(
   k: GeneratedImageKey,
   bytes: ArrayBuffer,
   contentType: string,
+  opts: { expired?: boolean } = {},
 ): Promise<void> {
   await env.IPFS_CACHE.put(generatedKey(k), bytes, {
     httpMetadata: { contentType },
-    customMetadata: { fetchedAt: String(Date.now()) },
+    customMetadata: {
+      fetchedAt: String(Date.now()),
+      expired: opts.expired ? "1" : "0",
+    },
   });
 }

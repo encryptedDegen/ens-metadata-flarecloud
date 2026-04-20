@@ -1,12 +1,42 @@
 import { ImageResponse } from 'workers-og'
 import { ens_beautify, ens_normalize } from '@adraffy/ens-normalize'
 import emojiRegex from 'emoji-regex'
+import type { Env } from '../env'
+import { HttpError } from '../lib/errors'
+import {
+	fetchImageBytes,
+	maybeSanitizeSvg,
+	resolveUriCached,
+} from './image'
 import SatoshiBlack from '../fonts/Satoshi-Black.otf'
 
 export type NameImageInput = {
+	env: Env
+	networkName: string
 	name: string
 	expired: boolean
-	avatar: { contentType: string; bytes: ArrayBuffer } | null
+}
+
+type ResolvedAvatar = { contentType: string; bytes: ArrayBuffer } | null
+
+async function resolveAvatar(
+	env: Env,
+	networkName: string,
+	name: string,
+): Promise<ResolvedAvatar> {
+	let uri: string
+	try {
+		uri = await resolveUriCached(env, 'avatar', networkName, name)
+	} catch (err) {
+		if (err instanceof HttpError) return null
+		throw err
+	}
+	try {
+		const image = await maybeSanitizeSvg(await fetchImageBytes(env, uri))
+		return { contentType: image.contentType, bytes: image.bytes }
+	} catch {
+		return null
+	}
 }
 
 type Style = Record<string, string | number>
@@ -339,7 +369,7 @@ function pickGradient(normalized: boolean, expired: boolean): string {
 	return GRADIENT_BLUE
 }
 
-function avatarDataUri(avatar: NameImageInput['avatar']): string | null {
+function avatarDataUri(avatar: ResolvedAvatar): string | null {
 	if (!avatar) return null
 	return `data:${avatar.contentType};base64,${bytesToBase64(avatar.bytes)}`
 }
@@ -355,12 +385,14 @@ function div(style: Style, children?: Element[] | string): Element {
 	}
 }
 
-function buildTree(
-	input: NameImageInput,
-	emojis: Map<string, string>,
-): Element {
-	const normalized = isNormalized(input.name)
-	const displayName = normalized ? ens_beautify(input.name) : input.name
+function buildTree(args: {
+	name: string
+	expired: boolean
+	avatar: ResolvedAvatar
+	emojis: Map<string, string>
+}): Element {
+	const normalized = isNormalized(args.name)
+	const displayName = normalized ? ens_beautify(args.name) : args.name
 	const { parent, subdomain } = splitSubdomain(displayName)
 
 	const parentText = truncateParent(parent)
@@ -371,7 +403,7 @@ function buildTree(
 	const subFont = subdomain ? nameFontSize(subdomain) : 0
 	const hasSubdomain = subdomain !== null
 
-	const avatarUri = avatarDataUri(input.avatar)
+	const avatarUri = avatarDataUri(args.avatar)
 	const rootStyle: Style = {
 		position: 'relative',
 		display: 'flex',
@@ -380,7 +412,7 @@ function buildTree(
 		width: `${SIZE}px`,
 		height: `${SIZE}px`,
 		padding: `${PADDING}px`,
-		background: pickGradient(normalized, input.expired),
+		background: pickGradient(normalized, args.expired),
 	}
 
 	const topRowChildren: Element[] = [
@@ -417,7 +449,7 @@ function buildTree(
 			alignItems: 'center',
 			...(hasSubdomain ? { marginTop: '24px' } : {}),
 		},
-		splitText(parentText, parentFont, emojis),
+		splitText(parentText, parentFont, args.emojis),
 	)
 
 	const bottomChildren: Element[] = []
@@ -437,7 +469,7 @@ function buildTree(
 					flexDirection: 'row',
 					alignItems: 'center',
 				},
-				splitText(subdomainText, subFont, emojis),
+				splitText(subdomainText, subFont, args.emojis),
 			),
 		)
 	}
@@ -502,12 +534,22 @@ export async function renderNameImage(
 	const normalized = isNormalized(input.name)
 	const displayName = normalized ? ens_beautify(input.name) : input.name
 	const { parent, subdomain } = splitSubdomain(displayName)
-	const [emojis, fallbackFonts] = await Promise.all([
+
+	// Avatar, emoji image assets, and Google Font subsets are all independent
+	// network work. Running them in parallel cuts cache-miss latency by the
+	// cost of whichever is slowest (typically the avatar fetch).
+	const [avatar, emojis, fallbackFonts] = await Promise.all([
+		resolveAvatar(input.env, input.networkName, input.name),
 		prepareEmojis([parent, subdomain]),
 		loadFallbackFonts(displayName),
 	])
 
-	const tree = buildTree(input, emojis)
+	const tree = buildTree({
+		name: input.name,
+		expired: input.expired,
+		avatar,
+		emojis,
+	})
 	const satoshi = {
 		name: 'Satoshi' as const,
 		data: SatoshiBlack,
