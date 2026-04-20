@@ -3,11 +3,7 @@ import { ens_beautify, ens_normalize } from '@adraffy/ens-normalize'
 import emojiRegex from 'emoji-regex'
 import type { Env } from '../env'
 import { HttpError } from '../lib/errors'
-import {
-	fetchImageBytes,
-	maybeSanitizeSvg,
-	resolveUriCached,
-} from './image'
+import { fetchImageBytes, maybeSanitizeSvg, resolveUriCached } from './image'
 import SatoshiBlack from '../fonts/Satoshi-Black.otf'
 
 export type NameImageInput = {
@@ -59,7 +55,7 @@ const LOGO_HEIGHT = 182
 const WARNING_SIZE = 150
 
 const GRADIENT_BLUE =
-	'linear-gradient(135deg, #44BCF0 0%, #628BF3 43%, #A099FF 100%)'
+	'linear-gradient(315deg, #44BCF0 0%, #628BF3 43%, #A099FF 100%)'
 const GRADIENT_GRAY = 'linear-gradient(135deg, #C1C1C1 0%, #4F4F4F 100%)'
 const GRADIENT_RED = 'linear-gradient(135deg, #EB9E9E 0%, #992222 100%)'
 
@@ -187,9 +183,9 @@ async function loadGoogleFontSubset(
 async function loadFallbackFonts(text: string): Promise<LoadedFont[]> {
 	if (!text) return []
 	const results = await Promise.all(
-		FALLBACK_FONTS.map(async (f) => {
+		FALLBACK_FONTS.map(async f => {
 			const chars = Array.from(text)
-				.filter((c) => f.test.test(c))
+				.filter(c => f.test.test(c))
 				.join('')
 			if (!chars) return null
 			const data = await loadGoogleFontSubset(f.family, f.weight, chars)
@@ -207,7 +203,7 @@ async function loadFallbackFonts(text: string): Promise<LoadedFont[]> {
 
 function emojiCodepointPath(emoji: string): string {
 	return Array.from(emoji)
-		.map((c) => c.codePointAt(0)!.toString(16))
+		.map(c => c.codePointAt(0)!.toString(16))
 		.join('-')
 }
 
@@ -245,7 +241,7 @@ async function prepareEmojis(
 	if (unique.size === 0) return new Map()
 	const entries = await Promise.all(
 		[...unique].map(
-			async (emoji) => [emoji, await fetchEmojiDataUri(emoji)] as const,
+			async emoji => [emoji, await fetchEmojiDataUri(emoji)] as const,
 		),
 	)
 	const results = new Map<string, string>()

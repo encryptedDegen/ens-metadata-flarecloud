@@ -26,3 +26,8 @@ preview_id = "00000000000000000000000000000000"
 type = "Data"
 globs = ["**/*.otf"]
 fallthrough = true
+
+[[rules]]
+type = "Text"
+globs = ["**/*.svg"]
+fallthrough = true

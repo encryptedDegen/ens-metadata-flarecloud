@@ -4,25 +4,25 @@ ENS metadata service running on Cloudflare Workers.
 
 A subset of [`ensdomains/ens-metadata-service`](https://github.com/ensdomains/ens-metadata-service) ported to Workers. Serves NFT metadata JSON, avatar/header images, and an NFT lookup endpoint. The image-generation endpoints (`/image`, `/rasterize`) are not included since they need `node-canvas` and Puppeteer.
 
-[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/Quantumlyy/ens-metadata-flarecloud)
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/encryptedDegen/ens-metadata-flarecloud)
 
 ## Compatibility
 
-| Endpoint | Upstream | Flarecloud |
-|---|:---:|:---:|
-| `GET /` | ✓ | ✓ (Scalar docs) |
-| `GET /docs` | ✓ | ✗ (use `/`) |
-| `GET /favicon.ico` | ✓ | ✗ |
-| `GET /{network}/{contract}/{tokenId}` | ✓ | ✓ |
-| `GET /{network}/{contract}/{tokenId}/image` | ✓ | ✗ (needs `node-canvas`) |
-| `GET /{network}/{contract}/{tokenId}/rasterize` | ✓ | ✗ (needs Puppeteer) |
-| `GET /{network}/avatar/{name}` | ✓ | ✓ |
-| `GET /{network}/avatar/{name}/meta` | ✓ | ✓ |
-| `GET /{network}/header/{name}` | ✓ | ✓ |
-| `GET /{network}/header/{name}/meta` | ✓ | ✓ |
-| `GET /queryNFT` | ✓ | ✓ |
-| `GET /preview/{name}` | ✓ | ✗ |
-| `GET /openapi.json` | ✗ | ✓ |
+| Endpoint                                        | Upstream |       Flarecloud        |
+| ----------------------------------------------- | :------: | :---------------------: |
+| `GET /`                                         |    ✓     |     ✓ (Scalar docs)     |
+| `GET /docs`                                     |    ✓     |       ✗ (use `/`)       |
+| `GET /favicon.ico`                              |    ✓     |            ✗            |
+| `GET /{network}/{contract}/{tokenId}`           |    ✓     |            ✓            |
+| `GET /{network}/{contract}/{tokenId}/image`     |    ✓     | ✗ (needs `node-canvas`) |
+| `GET /{network}/{contract}/{tokenId}/rasterize` |    ✓     |   ✗ (needs Puppeteer)   |
+| `GET /{network}/avatar/{name}`                  |    ✓     |            ✓            |
+| `GET /{network}/avatar/{name}/meta`             |    ✓     |            ✓            |
+| `GET /{network}/header/{name}`                  |    ✓     |            ✓            |
+| `GET /{network}/header/{name}/meta`             |    ✓     |            ✓            |
+| `GET /queryNFT`                                 |    ✓     |            ✓            |
+| `GET /preview/{name}`                           |    ✓     |            ✗            |
+| `GET /openapi.json`                             |    ✗     |            ✓            |
 
 `network` is one of `mainnet`, `sepolia`, `holesky`. `contract` is the BaseRegistrar (v1) or NameWrapper (v2) address.
 
