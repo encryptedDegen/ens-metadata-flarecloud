@@ -29,13 +29,25 @@ class SanitizeAttributes {
   }
 }
 
-export async function sanitizeSvg(svg: string): Promise<string> {
-  const res = new Response(svg, {
-    headers: { "content-type": "text/html; charset=utf-8" },
-  });
-  const out = new HTMLRewriter()
+function sanitizeResponse(res: Response): Response {
+  return new HTMLRewriter()
     .on(DANGEROUS_TAGS, new RemoveElement())
     .on("*", new SanitizeAttributes())
     .transform(res);
-  return out.text();
+}
+
+export async function sanitizeSvg(svg: string): Promise<string> {
+  return sanitizeResponse(
+    new Response(svg, { headers: { "content-type": "text/html; charset=utf-8" } }),
+  ).text();
+}
+
+export function sanitizeSvgStream(
+  src: ReadableStream<Uint8Array>,
+): ReadableStream<Uint8Array> {
+  const out = sanitizeResponse(
+    new Response(src, { headers: { "content-type": "text/html; charset=utf-8" } }),
+  );
+  if (!out.body) throw new Error("HTMLRewriter returned empty body");
+  return out.body;
 }

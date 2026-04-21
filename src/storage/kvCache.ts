@@ -1,9 +1,32 @@
 import type { Env } from "../env";
 import type { AvatarKind } from "../services/avatarResolver";
-import { RESOLVER_TTL_SECONDS } from "../constants";
+import { RESOLVER_TTL_SECONDS, STALE_RESOLVER_TTL_SECONDS } from "../constants";
+
+type Entry = { uri: string; fetchedAt: number };
+
+export type ResolvedEntry = { uri: string; fresh: boolean };
 
 function key(kind: AvatarKind, network: string, name: string): string {
   return `${kind}:${network}:${name.toLowerCase()}`;
+}
+
+const FRESH_MS = RESOLVER_TTL_SECONDS * 1000;
+
+function parseEntry(raw: string): Entry | null {
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (
+      parsed &&
+      typeof parsed === "object" &&
+      typeof (parsed as Entry).uri === "string" &&
+      typeof (parsed as Entry).fetchedAt === "number"
+    ) {
+      return parsed as Entry;
+    }
+  } catch {
+    // fall through
+  }
+  return null;
 }
 
 export async function getResolved(
@@ -11,8 +34,12 @@ export async function getResolved(
   kind: AvatarKind,
   network: string,
   name: string,
-): Promise<string | null> {
-  return env.RESOLVER_CACHE.get(key(kind, network, name));
+): Promise<ResolvedEntry | null> {
+  const raw = await env.RESOLVER_CACHE.get(key(kind, network, name));
+  if (!raw) return null;
+  const entry = parseEntry(raw);
+  if (!entry) return { uri: raw, fresh: true };
+  return { uri: entry.uri, fresh: Date.now() - entry.fetchedAt < FRESH_MS };
 }
 
 export async function putResolved(
@@ -22,7 +49,17 @@ export async function putResolved(
   name: string,
   uri: string,
 ): Promise<void> {
-  await env.RESOLVER_CACHE.put(key(kind, network, name), uri, {
-    expirationTtl: RESOLVER_TTL_SECONDS,
+  const entry: Entry = { uri, fetchedAt: Date.now() };
+  await env.RESOLVER_CACHE.put(key(kind, network, name), JSON.stringify(entry), {
+    expirationTtl: STALE_RESOLVER_TTL_SECONDS,
   });
+}
+
+export async function deleteResolved(
+  env: Env,
+  kind: AvatarKind,
+  network: string,
+  name: string,
+): Promise<void> {
+  await env.RESOLVER_CACHE.delete(key(kind, network, name));
 }

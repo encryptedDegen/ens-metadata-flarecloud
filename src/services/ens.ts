@@ -2,11 +2,14 @@ import { createPublicClient, http, type PublicClient } from "viem";
 import { normalize } from "viem/ens";
 import type { NetworkConfig } from "../lib/networks";
 import { badRequest } from "../lib/errors";
+import { RPC_TIMEOUT_MS } from "../constants";
 
 export function createClient(network: NetworkConfig): PublicClient {
   return createPublicClient({
     chain: network.chain,
-    transport: http(network.rpcUrl),
+    transport: http(network.rpcUrl, {
+      fetchOptions: { signal: AbortSignal.timeout(RPC_TIMEOUT_MS) },
+    }),
   });
 }
 

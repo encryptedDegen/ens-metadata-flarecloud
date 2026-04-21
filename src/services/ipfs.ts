@@ -1,5 +1,6 @@
 import type { Env } from "../env";
 import { upstream } from "../lib/errors";
+import { IPFS_GATEWAY_TIMEOUT_MS } from "../constants";
 
 export type IpfsRef = {
   cid: string;
@@ -24,19 +25,38 @@ export async function fetchIpfs(env: Env, ref: IpfsRef): Promise<Response> {
   const list = gateways(env);
   if (list.length === 0) throw upstream("no IPFS gateways configured");
 
-  let lastErr: unknown = null;
-  for (const gw of list) {
+  const controllers = list.map(() => new AbortController());
+  const attempts = list.map(async (gw, i) => {
     const url = `${gw}/ipfs/${ref.cid}${ref.path}`;
+    const ctrl = controllers[i]!;
+    const headerTimeout = setTimeout(() => ctrl.abort(), IPFS_GATEWAY_TIMEOUT_MS);
     try {
       const res = await fetch(url, {
         cf: { cacheTtl: 3600, cacheEverything: true },
+        signal: ctrl.signal,
       });
-      if (res.ok) return res;
-      lastErr = new Error(`${gw} → ${res.status}`);
-    } catch (e) {
-      lastErr = e;
+      if (!res.ok) throw new Error(`${gw} → ${res.status}`);
+      return { res, index: i };
+    } finally {
+      clearTimeout(headerTimeout);
     }
+  });
+
+  let winner: { res: Response; index: number };
+  try {
+    winner = await Promise.any(attempts);
+  } catch (e) {
+    const errs =
+      e instanceof AggregateError
+        ? e.errors.map((x) => (x instanceof Error ? x.message : String(x))).join("; ")
+        : e instanceof Error
+          ? e.message
+          : String(e);
+    throw upstream(`all IPFS gateways failed: ${errs}`, e);
   }
-  const detail = lastErr instanceof Error ? lastErr.message : String(lastErr);
-  throw upstream(`all IPFS gateways failed: ${detail}`, lastErr);
+
+  for (let i = 0; i < controllers.length; i++) {
+    if (i !== winner.index) controllers[i]!.abort();
+  }
+  return winner.res;
 }

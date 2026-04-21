@@ -7,6 +7,7 @@ export type CachedImage = {
   etag?: string;
   lastModified?: string;
   fetchedAt: number;
+  sanitized: boolean;
   expired?: boolean;
 };
 
@@ -32,6 +33,7 @@ async function readObject(obj: R2ObjectBody | null): Promise<CachedImage | null>
     etag: meta.etag,
     lastModified: meta.lastModified,
     fetchedAt: Number(meta.fetchedAt ?? "0"),
+    sanitized: meta.sanitized === "1",
     expired: meta.expired === "1",
   };
 }
@@ -43,12 +45,15 @@ export async function getIpfs(env: Env, ref: IpfsRef): Promise<CachedImage | nul
 export async function putIpfs(
   env: Env,
   ref: IpfsRef,
-  bytes: ArrayBuffer,
+  body: ArrayBuffer | ReadableStream<Uint8Array>,
   contentType: string,
+  sanitized = false,
 ): Promise<void> {
-  await env.IPFS_CACHE.put(ipfsKey(ref), bytes, {
+  const custom: Record<string, string> = { fetchedAt: String(Date.now()) };
+  if (sanitized) custom.sanitized = "1";
+  await env.IPFS_CACHE.put(ipfsKey(ref), body, {
     httpMetadata: { contentType },
-    customMetadata: { fetchedAt: String(Date.now()) },
+    customMetadata: custom,
   });
 }
 
@@ -56,18 +61,32 @@ export async function getHttps(env: Env, url: string): Promise<CachedImage | nul
   return readObject(await env.IPFS_CACHE.get(await httpsKey(url)));
 }
 
+export type HttpsValidators = {
+  etag?: string;
+  lastModified?: string;
+};
+
+export async function headHttps(env: Env, url: string): Promise<HttpsValidators | null> {
+  const obj = await env.IPFS_CACHE.head(await httpsKey(url));
+  if (!obj) return null;
+  const meta = obj.customMetadata ?? {};
+  return { etag: meta.etag, lastModified: meta.lastModified };
+}
+
 export async function putHttps(
   env: Env,
   url: string,
-  bytes: ArrayBuffer,
+  body: ArrayBuffer | ReadableStream<Uint8Array>,
   contentType: string,
   etag?: string,
   lastModified?: string,
+  sanitized = false,
 ): Promise<void> {
   const custom: Record<string, string> = { fetchedAt: String(Date.now()) };
   if (etag) custom.etag = etag;
   if (lastModified) custom.lastModified = lastModified;
-  await env.IPFS_CACHE.put(await httpsKey(url), bytes, {
+  if (sanitized) custom.sanitized = "1";
+  await env.IPFS_CACHE.put(await httpsKey(url), body, {
     httpMetadata: { contentType },
     customMetadata: custom,
   });

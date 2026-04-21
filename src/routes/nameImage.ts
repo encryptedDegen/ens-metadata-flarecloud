@@ -93,6 +93,7 @@ nameImageRoutes.openapi(route, async (c) => {
   const { renderNameImage } = await rendererPromise;
   const png = await renderNameImage({
     env: c.env,
+    ctx: c.executionCtx,
     networkName,
     name,
     expired,

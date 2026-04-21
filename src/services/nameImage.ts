@@ -3,11 +3,12 @@ import { ens_beautify, ens_normalize } from '@adraffy/ens-normalize'
 import emojiRegex from 'emoji-regex'
 import type { Env } from '../env'
 import { HttpError } from '../lib/errors'
-import { fetchImageBytes, maybeSanitizeSvg, resolveUriCached } from './image'
+import { fetchImageBytes, resolveUriCached } from './image'
 import SatoshiBlack from '../fonts/Satoshi-Black.otf'
 
 export type NameImageInput = {
 	env: Env
+	ctx: ExecutionContext
 	networkName: string
 	name: string
 	expired: boolean
@@ -17,19 +18,24 @@ type ResolvedAvatar = { contentType: string; bytes: ArrayBuffer } | null
 
 async function resolveAvatar(
 	env: Env,
+	ctx: ExecutionContext,
 	networkName: string,
 	name: string,
 ): Promise<ResolvedAvatar> {
 	let uri: string
 	try {
-		uri = await resolveUriCached(env, 'avatar', networkName, name)
+		uri = await resolveUriCached(env, 'avatar', networkName, name, ctx)
 	} catch (err) {
 		if (err instanceof HttpError) return null
 		throw err
 	}
 	try {
-		const image = await maybeSanitizeSvg(await fetchImageBytes(env, uri))
-		return { contentType: image.contentType, bytes: image.bytes }
+		const image = await fetchImageBytes(env, uri, ctx)
+		const bytes =
+			image.body instanceof ArrayBuffer
+				? image.body
+				: await new Response(image.body).arrayBuffer()
+		return { contentType: image.contentType, bytes }
 	} catch {
 		return null
 	}
@@ -535,7 +541,7 @@ export async function renderNameImage(
 	// network work. Running them in parallel cuts cache-miss latency by the
 	// cost of whichever is slowest (typically the avatar fetch).
 	const [avatar, emojis, fallbackFonts] = await Promise.all([
-		resolveAvatar(input.env, input.networkName, input.name),
+		resolveAvatar(input.env, input.ctx, input.networkName, input.name),
 		prepareEmojis([parent, subdomain]),
 		loadFallbackFonts(displayName),
 	])
