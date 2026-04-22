@@ -96,9 +96,15 @@ type FallbackFont = {
 const FALLBACK_FONTS: FallbackFont[] = [
 	{
 		name: 'NotoSym',
-		family: 'Noto Sans Symbols 2',
+		family: 'Noto Sans Symbols',
 		weight: 700,
-		test: /[\u2190-\u21FF\u2200-\u22FF\u2300-\u23FF\u2500-\u25FF\u2600-\u27BF\u2B00-\u2BFF]/u,
+		test: /[\u2190-\u21FF\u2460-\u24FF\u2600-\u27BF]/u,
+	},
+	{
+		name: 'NotoSym2',
+		family: 'Noto Sans Symbols 2',
+		weight: 400,
+		test: /[\u2200-\u22FF\u2300-\u23FF\u2500-\u25FF\u2B00-\u2BFF]/u,
 	},
 	{
 		name: 'NotoSansExt',
@@ -109,7 +115,7 @@ const FALLBACK_FONTS: FallbackFont[] = [
 	{
 		name: 'NotoNKo',
 		family: 'Noto Sans NKo',
-		weight: 700,
+		weight: 400,
 		test: /[\u07C0-\u07FF]/u,
 	},
 	{
@@ -170,26 +176,36 @@ async function loadGoogleFontSubset(
 ): Promise<ArrayBuffer | null> {
 	if (!text) return null
 	const unique = [...new Set(text)].join('')
-	const url = `https://fonts.googleapis.com/css2?family=${encodeURIComponent(
+	const baseUrl = `https://fonts.googleapis.com/css2?family=${encodeURIComponent(
 		family,
-	)}:wght@${weight}&text=${encodeURIComponent(unique)}`
-	try {
-		const cssRes = await fetch(url, {
-			headers: { 'User-Agent': GOOGLE_FONT_UA },
-			cf: { cacheTtl: 86400, cacheEverything: true },
-		} as RequestInit)
-		if (!cssRes.ok) return null
-		const css = await cssRes.text()
-		const match = css.match(/src:\s*url\((https:\/\/[^)]+)\)/)
-		if (!match) return null
-		const fontRes = await fetch(match[1]!, {
-			cf: { cacheTtl: 86400, cacheEverything: true },
-		} as RequestInit)
-		if (!fontRes.ok) return null
-		return await fontRes.arrayBuffer()
-	} catch {
-		return null
+	)}:wght@${weight}`
+	// Prefer the per-character subset (small). For some families — notably
+	// Noto Sans Symbols and Noto Sans Symbols 2 — Google's `/l/font?kit=…`
+	// subset URLs currently return 400, so fall back to the full font file.
+	const cssUrls = [
+		`${baseUrl}&text=${encodeURIComponent(unique)}`,
+		baseUrl,
+	]
+	for (const cssUrl of cssUrls) {
+		try {
+			const cssRes = await fetch(cssUrl, {
+				headers: { 'User-Agent': GOOGLE_FONT_UA },
+				cf: { cacheTtl: 86400, cacheEverything: true },
+			} as RequestInit)
+			if (!cssRes.ok) continue
+			const css = await cssRes.text()
+			const match = css.match(/src:\s*url\((https:\/\/[^)]+)\)/)
+			if (!match) continue
+			const fontRes = await fetch(match[1]!, {
+				cf: { cacheTtl: 86400, cacheEverything: true },
+			} as RequestInit)
+			if (!fontRes.ok) continue
+			return await fontRes.arrayBuffer()
+		} catch {
+			// try next URL
+		}
 	}
+	return null
 }
 
 async function loadFallbackFonts(text: string): Promise<LoadedFont[]> {
@@ -202,10 +218,14 @@ async function loadFallbackFonts(text: string): Promise<LoadedFont[]> {
 			if (!chars) return null
 			const data = await loadGoogleFontSubset(f.family, f.weight, chars)
 			if (!data) return null
+			// Report all fallbacks at weight 900 to match the primary text element.
+			// Satori filters fallback candidates by weight when picking a glyph, so
+			// registering at the font's actual upstream weight (e.g. 400 for
+			// Noto Sans Symbols 2) prevents it from being used against bold text.
 			return {
 				name: f.name,
 				data,
-				weight: f.weight,
+				weight: 900,
 				style: 'normal' as const,
 			}
 		}),
