@@ -98,13 +98,19 @@ const FALLBACK_FONTS: FallbackFont[] = [
 		name: 'NotoSym',
 		family: 'Noto Sans Symbols 2',
 		weight: 700,
-		test: /[\u2100-\u214F\u2190-\u21FF\u2200-\u22FF\u2300-\u23FF\u2500-\u257F\u25A0-\u25FF\u2600-\u27BF\u2B00-\u2BFF]/u,
+		test: /[\u2190-\u21FF\u2200-\u22FF\u2300-\u23FF\u2500-\u25FF\u2600-\u27BF\u2B00-\u2BFF]/u,
 	},
 	{
 		name: 'NotoSansExt',
 		family: 'Noto Sans',
 		weight: 700,
-		test: /[\u0370-\u03FF\u0400-\u04FF\u0500-\u052F\u0530-\u058F]/u,
+		test: /[\u0080-\u024F\u0370-\u03FF\u0400-\u04FF\u0500-\u052F\u0530-\u058F\u1E00-\u1EFF\u2000-\u218F]/u,
+	},
+	{
+		name: 'NotoNKo',
+		family: 'Noto Sans NKo',
+		weight: 700,
+		test: /[\u07C0-\u07FF]/u,
 	},
 	{
 		name: 'NotoSC',
