@@ -6,7 +6,13 @@ export type ResolvedUri =
   | { kind: "https"; url: string }
   | { kind: "ipfs"; uri: string }
   | { kind: "data"; uri: string }
-  | { kind: "eip155"; chainId: number; contract: `0x${string}`; tokenId: string };
+  | {
+      kind: "eip155";
+      chainId: number;
+      namespace: "erc721" | "erc1155";
+      contract: `0x${string}`;
+      tokenId: string;
+    };
 
 export type AvatarKind = "avatar" | "header";
 
@@ -22,9 +28,23 @@ export async function resolveRecord(
   return value;
 }
 
+// Single, well-known Arweave gateway. Could be made configurable later, but
+// arweave.net is the canonical public endpoint and supports the same path
+// scheme as `ar://TXID[/path]`.
+const ARWEAVE_GATEWAY = "https://arweave.net";
+
 export function classifyUri(uri: string): ResolvedUri {
   if (uri.startsWith("data:")) return { kind: "data", uri };
   if (uri.startsWith("ipfs://") || uri.startsWith("ipfs/")) return { kind: "ipfs", uri };
+
+  if (uri.startsWith("ar://")) {
+    // Rewrite to the Arweave gateway and let the HTTPS pipeline take over —
+    // arweave.net responds with proper Content-Type/ETag/Content-Length for
+    // the existing cache + revalidation logic.
+    const rest = uri.slice("ar://".length);
+    if (!rest) throw unsupported("malformed ar:// URI");
+    return { kind: "https", url: `${ARWEAVE_GATEWAY}/${rest}` };
+  }
 
   const eip155 = uri.match(
     /^eip155:(\d+)\/(erc721|erc1155):(0x[a-fA-F0-9]{40})\/(\d+)$/,
@@ -33,6 +53,7 @@ export function classifyUri(uri: string): ResolvedUri {
     return {
       kind: "eip155",
       chainId: Number(eip155[1]),
+      namespace: eip155[2] as "erc721" | "erc1155",
       contract: eip155[3]! as `0x${string}`,
       tokenId: eip155[4]!,
     };
