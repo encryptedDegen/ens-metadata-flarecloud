@@ -15,6 +15,17 @@ function ipfsKey(ref: IpfsRef): string {
   return `ipfs/${ref.cid}${ref.path}`;
 }
 
+// R2.put rejects ReadableStreams of unknown length (i.e. anything other
+// than a FixedLengthStream). The teed body in the streaming path has
+// unknown length, so buffer to ArrayBuffer first. Memory is bounded by the
+// caller's MAX_IMAGE_BYTES cap.
+async function toArrayBuffer(
+  body: ArrayBuffer | ReadableStream<Uint8Array>,
+): Promise<ArrayBuffer> {
+  if (body instanceof ArrayBuffer) return body;
+  return await new Response(body).arrayBuffer();
+}
+
 async function httpsKey(url: string): Promise<string> {
   const bytes = new TextEncoder().encode(url);
   const digest = await crypto.subtle.digest("SHA-256", bytes);
@@ -51,7 +62,7 @@ export async function putIpfs(
 ): Promise<void> {
   const custom: Record<string, string> = { fetchedAt: String(Date.now()) };
   if (sanitized) custom.sanitized = "1";
-  await env.IPFS_CACHE.put(ipfsKey(ref), body, {
+  await env.IPFS_CACHE.put(ipfsKey(ref), await toArrayBuffer(body), {
     httpMetadata: { contentType },
     customMetadata: custom,
   });
@@ -86,7 +97,7 @@ export async function putHttps(
   if (etag) custom.etag = etag;
   if (lastModified) custom.lastModified = lastModified;
   if (sanitized) custom.sanitized = "1";
-  await env.IPFS_CACHE.put(await httpsKey(url), body, {
+  await env.IPFS_CACHE.put(await httpsKey(url), await toArrayBuffer(body), {
     httpMetadata: { contentType },
     customMetadata: custom,
   });

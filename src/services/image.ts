@@ -1,18 +1,28 @@
 import type { Env } from "../env";
-import { getNetwork } from "../lib/networks";
-import { badRequest, HttpError, unsupported, upstream } from "../lib/errors";
+import { getNetwork, type NetworkConfig } from "../lib/networks";
+import { badRequest, HttpError, notFound, upstream } from "../lib/errors";
 import {
   classifyUri,
   decodeDataUri,
   resolveRecord,
   type AvatarKind,
 } from "./avatarResolver";
+import { createClient, getOwner, normalizeName } from "./ens";
 import { fetchIpfs, parseIpfs } from "./ipfs";
-import { sanitizeSvg, sanitizeSvgStream } from "./sanitize";
+import { resolveNftAvatar } from "./nftAvatar";
+import { sanitizeSvg } from "./sanitize";
 import { deleteResolved, getResolved, putResolved } from "../storage/kvCache";
 import { getHttps, getIpfs, headHttps, putHttps, putIpfs } from "../storage/r2Cache";
 import { isSvgMime, sniffMime, SVG_MIME } from "../lib/mime";
 import { HTTPS_IMAGE_TIMEOUT_MS, MAX_IMAGE_BYTES } from "../constants";
+
+// Context the eip155 (NFT) image path needs to look up the wallet that
+// "owns" the avatar — i.e. the address the ENS name resolves to. Other URI
+// schemes ignore this entirely.
+export type EnsContext = {
+  network: NetworkConfig;
+  name: string;
+};
 
 export type ImageResult = {
   body: ReadableStream<Uint8Array> | ArrayBuffer;
@@ -38,24 +48,6 @@ function advertisedLengthExceeds(headers: Headers, max: number): boolean {
   if (!raw) return false;
   const n = Number(raw);
   return Number.isFinite(n) && n > max;
-}
-
-function sizeLimitedStream(
-  src: ReadableStream<Uint8Array>,
-  max: number,
-): ReadableStream<Uint8Array> {
-  let seen = 0;
-  const transform = new TransformStream<Uint8Array, Uint8Array>({
-    transform(chunk, controller) {
-      seen += chunk.byteLength;
-      if (seen > max) {
-        controller.error(upstream(`image exceeds size limit: >${max} bytes`));
-        return;
-      }
-      controller.enqueue(chunk);
-    },
-  });
-  return src.pipeThrough(transform);
 }
 
 async function sanitizeIfSvg(
@@ -114,6 +106,7 @@ export async function fetchImageBytes(
   env: Env,
   uri: string,
   ctx: ExecutionContext,
+  ensContext?: EnsContext,
 ): Promise<ImageResult> {
   const classified = classifyUri(uri);
 
@@ -142,26 +135,15 @@ export async function fetchImageBytes(
         );
       }
       const headerType = res.headers.get("content-type");
-      const hasDeclaredLength = res.headers.get("content-length") !== null;
-      if (!headerType || !hasDeclaredLength) {
-        const rawBytes = await res.arrayBuffer();
-        assertUnderSizeLimit(rawBytes.byteLength);
-        const rawType = headerType ?? sniffMime(new Uint8Array(rawBytes));
-        const image = await sanitizeIfSvg(rawBytes, rawType);
-        const stored = image.body as ArrayBuffer;
-        ctx.waitUntil(
-          putIpfs(env, ref, stored, image.contentType, isSvgMime(image.contentType)),
-        );
-        return { ...image, etag };
-      }
-      if (!res.body) throw upstream("ipfs response has no body");
-      const limited = sizeLimitedStream(res.body, MAX_IMAGE_BYTES);
-      const isSvg = isSvgMime(headerType);
-      const outStream = isSvg ? sanitizeSvgStream(limited) : limited;
-      const outType = isSvg ? SVG_MIME : headerType;
-      const [toClient, toR2] = outStream.tee();
-      ctx.waitUntil(putIpfs(env, ref, toR2, outType, isSvg));
-      return { body: toClient, contentType: outType, etag };
+      const rawBytes = await res.arrayBuffer();
+      assertUnderSizeLimit(rawBytes.byteLength);
+      const rawType = headerType ?? sniffMime(new Uint8Array(rawBytes));
+      const image = await sanitizeIfSvg(rawBytes, rawType);
+      const stored = image.body as ArrayBuffer;
+      ctx.waitUntil(
+        putIpfs(env, ref, stored, image.contentType, isSvgMime(image.contentType)),
+      );
+      return { ...image, etag };
     }
 
     case "https": {
@@ -208,39 +190,57 @@ export async function fetchImageBytes(
       const headerType = res.headers.get("content-type");
       const etag = res.headers.get("etag") ?? undefined;
       const lastModified = res.headers.get("last-modified") ?? undefined;
-      const hasDeclaredLength = res.headers.get("content-length") !== null;
-      if (!headerType || !hasDeclaredLength) {
-        const rawBytes = await res.arrayBuffer();
-        assertUnderSizeLimit(rawBytes.byteLength);
-        const rawType = headerType ?? sniffMime(new Uint8Array(rawBytes));
-        const image = await sanitizeIfSvg(rawBytes, rawType);
-        const stored = image.body as ArrayBuffer;
-        ctx.waitUntil(
-          putHttps(
-            env,
-            classified.url,
-            stored,
-            image.contentType,
-            etag,
-            lastModified,
-            isSvgMime(image.contentType),
-          ),
-        );
-        return { ...image, etag };
-      }
-      if (!res.body) throw upstream("https response has no body");
-      const limited = sizeLimitedStream(res.body, MAX_IMAGE_BYTES);
-      const isSvg = isSvgMime(headerType);
-      const outStream = isSvg ? sanitizeSvgStream(limited) : limited;
-      const outType = isSvg ? SVG_MIME : headerType;
-      const [toClient, toR2] = outStream.tee();
+      const rawBytes = await res.arrayBuffer();
+      assertUnderSizeLimit(rawBytes.byteLength);
+      const rawType = headerType ?? sniffMime(new Uint8Array(rawBytes));
+      const image = await sanitizeIfSvg(rawBytes, rawType);
+      const stored = image.body as ArrayBuffer;
       ctx.waitUntil(
-        putHttps(env, classified.url, toR2, outType, etag, lastModified, isSvg),
+        putHttps(
+          env,
+          classified.url,
+          stored,
+          image.contentType,
+          etag,
+          lastModified,
+          isSvgMime(image.contentType),
+        ),
       );
-      return { body: toClient, contentType: outType, etag };
+      return { ...image, etag };
     }
 
-    case "eip155":
-      throw unsupported("eip155 avatar resolution is not supported");
+    case "eip155": {
+      // Resolve the NFT (tokenURI → metadata JSON → image URI) and recurse
+      // through this same function so the resolved image goes through the
+      // existing IPFS/HTTPS/data caching paths. Ownership check uses the
+      // address the ENS name resolves to. Without an ensContext (debug-only
+      // callers) we skip the check; otherwise a missing addr record makes
+      // verification impossible and we treat it as not-found.
+      let expectedOwner: `0x${string}` | null = null;
+      if (ensContext) {
+        expectedOwner = await getOwner(
+          createClient(ensContext.network),
+          normalizeName(ensContext.name),
+        );
+        if (!expectedOwner) {
+          throw notFound(
+            `${ensContext.name} has no addr record; cannot verify NFT avatar ownership`,
+          );
+        }
+      }
+      const meta = await resolveNftAvatar(
+        env,
+        {
+          chainId: classified.chainId,
+          namespace: classified.namespace,
+          contract: classified.contract,
+          tokenId: classified.tokenId,
+        },
+        expectedOwner,
+      );
+      // Pass undefined ensContext on recursion — the inner image URI is no
+      // longer ENS-bound and shouldn't trigger another ownership check.
+      return fetchImageBytes(env, meta.imageUri, ctx);
+    }
   }
 }

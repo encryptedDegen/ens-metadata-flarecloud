@@ -2,7 +2,8 @@ import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
 import type { Env } from "../env";
 import type { AvatarKind } from "../services/avatarResolver";
 import { fetchImageBytes, resolveUriCached } from "../services/image";
-import { HttpError } from "../lib/errors";
+import { getNetwork } from "../lib/networks";
+import { badRequest, HttpError } from "../lib/errors";
 import { SVG_MIME } from "../lib/mime";
 import defaultAvatarSvg from "../assets/default-avatar.svg";
 import defaultHeaderSvg from "../assets/default-header.svg";
@@ -102,9 +103,14 @@ function buildImageRoutes(kind: AvatarKind): OpenAPIHono<{ Bindings: Env }> {
     }
 
     const { network, name } = c.req.valid("param");
+    const networkConfig = getNetwork(c.env, network);
+    if (!networkConfig) throw badRequest(`unknown network: ${network}`);
     try {
       const uri = await resolveUriCached(c.env, kind, network, name, c.executionCtx);
-      const image = await fetchImageBytes(c.env, uri, c.executionCtx);
+      const image = await fetchImageBytes(c.env, uri, c.executionCtx, {
+        network: networkConfig,
+        name,
+      });
 
       const headers: Record<string, string> = {
         "content-type": image.contentType,
