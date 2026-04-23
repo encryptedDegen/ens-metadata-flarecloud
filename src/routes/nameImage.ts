@@ -11,10 +11,12 @@ import {
 
 export const nameImageRoutes = new OpenAPIHono<{ Bindings: Env }>();
 
-const CACHE_VERSION = "v28";
+// Bump whenever the SVG template or rendering semantics change so cached
+// objects don't serve stale output.
+const CACHE_VERSION = "svg-v1";
 const ACTIVE_MAX_AGE = 60 * 60 * 24 * 365;
 const FALLBACK_MAX_AGE = 60 * 60;
-const PNG_CONTENT_TYPE = "image/png";
+const SVG_CONTENT_TYPE = "image/svg+xml";
 
 const route = createRoute({
   method: "get",
@@ -30,8 +32,8 @@ const route = createRoute({
   },
   responses: {
     200: {
-      description: "PNG image bytes",
-      content: { "image/png": { schema: z.string().openapi({ format: "binary" }) } },
+      description: "SVG image",
+      content: { "image/svg+xml": { schema: z.string() } },
     },
     400: { description: "Bad request", content: { "application/json": { schema: ErrorSchema } } },
     404: { description: "Not found", content: { "application/json": { schema: ErrorSchema } } },
@@ -45,12 +47,12 @@ function isExpired(expiryDateSeconds: string | null | undefined): boolean {
 }
 
 function respond(
-  bytes: ArrayBuffer,
+  body: ArrayBuffer | string,
   contentType: string,
   expired: boolean,
 ): Response {
   const maxAge = expired ? FALLBACK_MAX_AGE : ACTIVE_MAX_AGE;
-  return new Response(bytes, {
+  return new Response(body, {
     headers: {
       "content-type": contentType,
       "cache-control": `public, max-age=${maxAge}`,
@@ -61,8 +63,6 @@ function respond(
 nameImageRoutes.openapi(route, async (c) => {
   const { network: networkName, contract, tokenId } = c.req.valid("param");
 
-  // Cache check runs before any external call. On a hit we skip the subgraph
-  // lookup, the workers-og load, and the renderer entirely.
   const cacheKey = {
     network: networkName,
     contract,
@@ -75,8 +75,6 @@ nameImageRoutes.openapi(route, async (c) => {
     return respond(hit.bytes, hit.contentType, hit.expired ?? false) as never;
   }
 
-  // Miss: kick off the wasm-heavy renderer import in parallel with the
-  // subgraph fetch so the cold path overlaps module load with network IO.
   const rendererPromise = import("../services/nameImage");
   const resolved = await resolveDomain(c.env, networkName, contract, tokenId);
 
@@ -91,17 +89,23 @@ nameImageRoutes.openapi(route, async (c) => {
   const expired = isExpired(resolved.record.registration?.expiryDate);
 
   const { renderNameImage } = await rendererPromise;
-  const png = await renderNameImage({
+  const svg = await renderNameImage({
     env: c.env,
     ctx: c.executionCtx,
     networkName,
     name,
+    tokenHex: resolved.tokenHex,
     expired,
   });
 
+  const encoded = new TextEncoder().encode(svg);
+  const bytes = encoded.buffer.slice(
+    encoded.byteOffset,
+    encoded.byteOffset + encoded.byteLength,
+  ) as ArrayBuffer;
   c.executionCtx.waitUntil(
-    putGenerated(c.env, cacheKey, png, PNG_CONTENT_TYPE, { expired }),
+    putGenerated(c.env, cacheKey, bytes, SVG_CONTENT_TYPE, { expired }),
   );
 
-  return respond(png, PNG_CONTENT_TYPE, expired) as never;
+  return respond(svg, SVG_CONTENT_TYPE, expired) as never;
 });
