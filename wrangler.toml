@@ -27,10 +27,15 @@ preview_id = "00000000000000000000000000000000"
 
 [[rules]]
 type = "Data"
-globs = ["**/*.otf"]
+globs = ["**/*.otf", "**/*.ttf"]
 fallthrough = true
 
 [[rules]]
 type = "Text"
 globs = ["**/*.svg"]
+fallthrough = true
+
+[[rules]]
+type = "CompiledWasm"
+globs = ["**/*.wasm"]
 fallthrough = true
