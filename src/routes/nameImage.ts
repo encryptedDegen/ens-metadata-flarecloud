@@ -14,8 +14,8 @@ export const nameImageRoutes = new OpenAPIHono<{ Bindings: Env }>();
 
 // Bump per format whenever the template or rendering semantics change so
 // cached objects don't serve stale output.
-const SVG_CACHE_VERSION = "svg-v2";
-const PNG_CACHE_VERSION = "png-v2";
+const SVG_CACHE_VERSION = "svg-v3";
+const PNG_CACHE_VERSION = "png-v3";
 const ACTIVE_MAX_AGE = 60 * 60 * 24 * 365;
 const FALLBACK_MAX_AGE = 60 * 60;
 const SVG_CONTENT_TYPE = "image/svg+xml";
