@@ -59,10 +59,25 @@ const pngRoute = createRoute({
   },
 });
 
-function isExpired(expiryDateSeconds: string | null | undefined): boolean {
-  if (!expiryDateSeconds) return false;
+// Post-expiry timeline for .eth: 90-day grace where the original owner can
+// still renew, then a 21-day temporary premium (Dutch auction) before the
+// name returns to base price.
+const GRACE_PERIOD_MS = 90 * 24 * 60 * 60 * 1000;
+const PREMIUM_PERIOD_MS = 21 * 24 * 60 * 60 * 1000;
+
+type RegistrationState = "active" | "grace" | "premium" | "expired";
+
+function getRegistrationState(
+  expiryDateSeconds: string | null | undefined,
+): RegistrationState {
+  if (!expiryDateSeconds) return "active";
   const expiryMs = Number(expiryDateSeconds) * 1000;
-  return Number.isFinite(expiryMs) && expiryMs < Date.now();
+  if (!Number.isFinite(expiryMs)) return "active";
+  const now = Date.now();
+  if (now < expiryMs) return "active";
+  if (now < expiryMs + GRACE_PERIOD_MS) return "grace";
+  if (now < expiryMs + GRACE_PERIOD_MS + PREMIUM_PERIOD_MS) return "premium";
+  return "expired";
 }
 
 function respond(
@@ -99,7 +114,8 @@ async function renderSvgFromParams(
       response: c.json({ error: "not_found", message: "name not available" }, 404),
     };
   }
-  const expired = isExpired(resolved.record.registration?.expiryDate);
+  const state = getRegistrationState(resolved.record.registration?.expiryDate);
+  const expired = state !== "active";
   const { renderNameImage } = await import("../services/nameImage");
   const svg = await renderNameImage({
     env: c.env,
@@ -107,7 +123,7 @@ async function renderSvgFromParams(
     networkName,
     name,
     tokenHex: resolved.tokenHex,
-    expired,
+    state,
   });
   return { kind: "svg", svg, expired };
 }
