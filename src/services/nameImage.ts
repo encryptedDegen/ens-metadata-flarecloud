@@ -261,19 +261,16 @@ function buildSvg(args: {
         <stop offset="1" stop-color="#992222"/>
       </linearGradient>
       <linearGradient id="paint2_linear" x1="0" y1="0" x2="269.553" y2="285.527" gradientUnits="userSpaceOnUse">
-        <stop stop-color="#B2E3FF"/>
-        <stop offset="0.5" stop-color="#2DB5FF"/>
-        <stop offset="1" stop-color="#19648D"/>
+        <stop stop-color="#2DB5FF"/>
+        <stop offset="1" stop-color="#145071"/>
       </linearGradient>
       <linearGradient id="paint3_linear" x1="0" y1="0" x2="269.553" y2="285.527" gradientUnits="userSpaceOnUse">
-        <stop stop-color="#FFDA75"/>
-        <stop offset="0.5" stop-color="#EFB100"/>
-        <stop offset="1" stop-color="#7D5D00"/>
+        <stop stop-color="#EFB100"/>
+        <stop offset="1" stop-color="#5A4300"/>
       </linearGradient>
       <linearGradient id="paint4_linear" x1="0" y1="0" x2="269.553" y2="285.527" gradientUnits="userSpaceOnUse">
-        <stop stop-color="#D6FEC8"/>
-        <stop offset="0.5" stop-color="#74FD43"/>
-        <stop offset="1" stop-color="#408B25"/>
+        <stop stop-color="#74FD43"/>
+        <stop offset="1" stop-color="#1A3C0D"/>
       </linearGradient>
     </defs>
   </svg>`;
