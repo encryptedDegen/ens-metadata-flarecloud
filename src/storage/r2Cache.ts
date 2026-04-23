@@ -8,7 +8,6 @@ export type CachedImage = {
   lastModified?: string;
   fetchedAt: number;
   sanitized: boolean;
-  expired?: boolean;
 };
 
 function ipfsKey(ref: IpfsRef): string {
@@ -45,7 +44,6 @@ async function readObject(obj: R2ObjectBody | null): Promise<CachedImage | null>
     lastModified: meta.lastModified,
     fetchedAt: Number(meta.fetchedAt ?? "0"),
     sanitized: meta.sanitized === "1",
-    expired: meta.expired === "1",
   };
 }
 
@@ -126,13 +124,9 @@ export async function putGenerated(
   k: GeneratedImageKey,
   bytes: ArrayBuffer,
   contentType: string,
-  opts: { expired?: boolean } = {},
 ): Promise<void> {
   await env.IPFS_CACHE.put(generatedKey(k), bytes, {
     httpMetadata: { contentType },
-    customMetadata: {
-      fetchedAt: String(Date.now()),
-      expired: opts.expired ? "1" : "0",
-    },
+    customMetadata: { fetchedAt: String(Date.now()) },
   });
 }

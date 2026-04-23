@@ -14,10 +14,9 @@ export const nameImageRoutes = new OpenAPIHono<{ Bindings: Env }>();
 
 // Bump per format whenever the template or rendering semantics change so
 // cached objects don't serve stale output.
-const SVG_CACHE_VERSION = "svg-v3";
-const PNG_CACHE_VERSION = "png-v3";
-const ACTIVE_MAX_AGE = 60 * 60 * 24 * 365;
-const FALLBACK_MAX_AGE = 60 * 60;
+const SVG_CACHE_VERSION = "svg-v4";
+const PNG_CACHE_VERSION = "png-v4";
+const MAX_AGE = 60 * 60 * 24 * 365;
 const SVG_CONTENT_TYPE = "image/svg+xml";
 const PNG_CONTENT_TYPE = "image/png";
 
@@ -59,43 +58,17 @@ const pngRoute = createRoute({
   },
 });
 
-// Post-expiry timeline for .eth: 90-day grace where the original owner can
-// still renew, then a 21-day temporary premium (Dutch auction) before the
-// name returns to base price.
-const GRACE_PERIOD_MS = 90 * 24 * 60 * 60 * 1000;
-const PREMIUM_PERIOD_MS = 21 * 24 * 60 * 60 * 1000;
-
-type RegistrationState = "active" | "grace" | "premium" | "expired";
-
-function getRegistrationState(
-  expiryDateSeconds: string | null | undefined,
-): RegistrationState {
-  if (!expiryDateSeconds) return "active";
-  const expiryMs = Number(expiryDateSeconds) * 1000;
-  if (!Number.isFinite(expiryMs)) return "active";
-  const now = Date.now();
-  if (now < expiryMs) return "active";
-  if (now < expiryMs + GRACE_PERIOD_MS) return "grace";
-  if (now < expiryMs + GRACE_PERIOD_MS + PREMIUM_PERIOD_MS) return "premium";
-  return "expired";
-}
-
-function respond(
-  body: ArrayBuffer | string,
-  contentType: string,
-  expired: boolean,
-): Response {
-  const maxAge = expired ? FALLBACK_MAX_AGE : ACTIVE_MAX_AGE;
+function respond(body: ArrayBuffer | string, contentType: string): Response {
   return new Response(body, {
     headers: {
       "content-type": contentType,
-      "cache-control": `public, max-age=${maxAge}`,
+      "cache-control": `public, max-age=${MAX_AGE}`,
     },
   });
 }
 
 type RenderResult =
-  | { kind: "svg"; svg: string; expired: boolean }
+  | { kind: "svg"; svg: string }
   | { kind: "response"; response: Response };
 
 async function renderSvgFromParams(
@@ -114,8 +87,6 @@ async function renderSvgFromParams(
       response: c.json({ error: "not_found", message: "name not available" }, 404),
     };
   }
-  const state = getRegistrationState(resolved.record.registration?.expiryDate);
-  const expired = state !== "active";
   const { renderNameImage } = await import("../services/nameImage");
   const svg = await renderNameImage({
     env: c.env,
@@ -123,9 +94,8 @@ async function renderSvgFromParams(
     networkName,
     name,
     tokenHex: resolved.tokenHex,
-    state,
   });
-  return { kind: "svg", svg, expired };
+  return { kind: "svg", svg };
 }
 
 function utf8Bytes(s: string): ArrayBuffer {
@@ -149,7 +119,7 @@ nameImageRoutes.openapi(svgRoute, async (c) => {
     version: SVG_CACHE_VERSION,
   };
   const hit = await getGenerated(c.env, cacheKey);
-  if (hit) return respond(hit.bytes, hit.contentType, hit.expired ?? false) as never;
+  if (hit) return respond(hit.bytes, hit.contentType) as never;
 
   const result = await renderSvgFromParams(c, networkName, contract, tokenId);
   if (result.kind === "response") return result.response as never;
@@ -157,10 +127,8 @@ nameImageRoutes.openapi(svgRoute, async (c) => {
   const { embedSatoshiFont } = await import("../services/nameImage");
   const selfContained = embedSatoshiFont(result.svg);
   const bytes = utf8Bytes(selfContained);
-  c.executionCtx.waitUntil(
-    putGenerated(c.env, cacheKey, bytes, SVG_CONTENT_TYPE, { expired: result.expired }),
-  );
-  return respond(selfContained, SVG_CONTENT_TYPE, result.expired) as never;
+  c.executionCtx.waitUntil(putGenerated(c.env, cacheKey, bytes, SVG_CONTENT_TYPE));
+  return respond(selfContained, SVG_CONTENT_TYPE) as never;
 });
 
 nameImageRoutes.openapi(pngRoute, async (c) => {
@@ -172,7 +140,7 @@ nameImageRoutes.openapi(pngRoute, async (c) => {
     version: PNG_CACHE_VERSION,
   };
   const hit = await getGenerated(c.env, cacheKey);
-  if (hit) return respond(hit.bytes, hit.contentType, hit.expired ?? false) as never;
+  if (hit) return respond(hit.bytes, hit.contentType) as never;
 
   const rasterizerPromise = import("../services/rasterize");
   const result = await renderSvgFromParams(c, networkName, contract, tokenId);
@@ -181,8 +149,6 @@ nameImageRoutes.openapi(pngRoute, async (c) => {
   const { rasterizeNameImageSvg } = await rasterizerPromise;
   const png = await rasterizeNameImageSvg(result.svg);
   const bytes = uint8Bytes(png);
-  c.executionCtx.waitUntil(
-    putGenerated(c.env, cacheKey, bytes, PNG_CONTENT_TYPE, { expired: result.expired }),
-  );
-  return respond(bytes, PNG_CONTENT_TYPE, result.expired) as never;
+  c.executionCtx.waitUntil(putGenerated(c.env, cacheKey, bytes, PNG_CONTENT_TYPE));
+  return respond(bytes, PNG_CONTENT_TYPE) as never;
 });
