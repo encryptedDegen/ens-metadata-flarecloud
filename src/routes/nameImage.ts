@@ -11,12 +11,12 @@ import {
 
 export const nameImageRoutes = new OpenAPIHono<{ Bindings: Env }>();
 
-// Bump whenever the SVG template or rendering semantics change so cached
+// Bump whenever the template or rendering semantics change so cached
 // objects don't serve stale output.
-const CACHE_VERSION = "svg-v1";
+const CACHE_VERSION = "png-v1";
 const ACTIVE_MAX_AGE = 60 * 60 * 24 * 365;
 const FALLBACK_MAX_AGE = 60 * 60;
-const SVG_CONTENT_TYPE = "image/svg+xml";
+const PNG_CONTENT_TYPE = "image/png";
 
 const route = createRoute({
   method: "get",
@@ -32,8 +32,8 @@ const route = createRoute({
   },
   responses: {
     200: {
-      description: "SVG image",
-      content: { "image/svg+xml": { schema: z.string() } },
+      description: "PNG image",
+      content: { "image/png": { schema: z.string() } },
     },
     400: { description: "Bad request", content: { "application/json": { schema: ErrorSchema } } },
     404: { description: "Not found", content: { "application/json": { schema: ErrorSchema } } },
@@ -76,6 +76,7 @@ nameImageRoutes.openapi(route, async (c) => {
   }
 
   const rendererPromise = import("../services/nameImage");
+  const rasterizerPromise = import("../services/rasterize");
   const resolved = await resolveDomain(c.env, networkName, contract, tokenId);
 
   const name =
@@ -98,14 +99,15 @@ nameImageRoutes.openapi(route, async (c) => {
     expired,
   });
 
-  const encoded = new TextEncoder().encode(svg);
-  const bytes = encoded.buffer.slice(
-    encoded.byteOffset,
-    encoded.byteOffset + encoded.byteLength,
+  const { rasterizeNameImageSvg } = await rasterizerPromise;
+  const png = await rasterizeNameImageSvg(svg);
+  const bytes = png.buffer.slice(
+    png.byteOffset,
+    png.byteOffset + png.byteLength,
   ) as ArrayBuffer;
   c.executionCtx.waitUntil(
-    putGenerated(c.env, cacheKey, bytes, SVG_CONTENT_TYPE, { expired }),
+    putGenerated(c.env, cacheKey, bytes, PNG_CONTENT_TYPE, { expired }),
   );
 
-  return respond(svg, SVG_CONTENT_TYPE, expired) as never;
+  return respond(bytes, PNG_CONTENT_TYPE, expired) as never;
 });

@@ -2,7 +2,6 @@ import { ens_beautify, ens_normalize } from "@adraffy/ens-normalize";
 import type { Env } from "../env";
 import { HttpError } from "../lib/errors";
 import { fetchImageBytes, resolveUriCached } from "./image";
-import SatoshiBold from "../fonts/Satoshi-Bold.ttf";
 
 export type NameImageInput = {
 	env: Env;
@@ -49,11 +48,6 @@ function bytesToBase64(buf: ArrayBuffer): string {
 	}
 	return btoa(binary);
 }
-
-// Embed Satoshi-Bold as a base64 data URL once at module load. The reference
-// service (ens-metadata-service) bakes the font into every SVG so the image is
-// self-contained. Weight 600–900 mirrors the upstream @font-face declaration.
-const SATOSHI_DATA_URL = `data:font/truetype;charset=utf-8;base64,${bytesToBase64(SatoshiBold)}`;
 
 const MAX_CHAR = 60;
 
@@ -223,17 +217,9 @@ function buildSvg(args: {
       fill="white"
       filter="url(#dropShadow)">${args.domain}</text>
     <defs>
-      <style type="text/css">
-        @font-face {
-          font-family: "Satoshi";
-          font-style: normal;
-          font-weight: 600 900;
-          src: url(${SATOSHI_DATA_URL});
-        }
-      </style>
       <style>
         text {
-          font-family: 'Satoshi', 'Noto Color Emoji', 'Apple Color Emoji', sans-serif;
+          font-family: 'Satoshi', sans-serif;
           font-style: normal;
           font-variant-numeric: tabular-nums;
           font-weight: bold;
