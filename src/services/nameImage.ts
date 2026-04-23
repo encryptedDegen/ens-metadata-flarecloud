@@ -4,15 +4,12 @@ import { HttpError } from "../lib/errors";
 import { fetchImageBytes, resolveUriCached } from "./image";
 import SatoshiBold from "../fonts/Satoshi-Bold.ttf";
 
-export type RegistrationState = "active" | "grace" | "premium" | "expired";
-
 export type NameImageInput = {
 	env: Env;
 	ctx: ExecutionContext;
 	networkName: string;
 	name: string;
 	tokenHex: string;
-	state: RegistrationState;
 };
 
 type ResolvedAvatar = { contentType: string; bytes: ArrayBuffer } | null;
@@ -189,18 +186,9 @@ function avatarImageElement(avatar: ResolvedAvatar): string {
         <rect width="270" height="270" fill="#000" fill-opacity=".12"/>`;
 }
 
-function backgroundRect(normalized: boolean, state: RegistrationState): string {
-	if (!normalized) return `<rect width="270" height="270" fill="url(#paint1_linear)"/>`;
-	switch (state) {
-		case "grace":
-			return `<rect width="270" height="270" fill="url(#paint3_linear)"/>`;
-		case "premium":
-			return `<rect width="270" height="270" fill="url(#paint4_linear)"/>`;
-		case "expired":
-			return `<rect width="270" height="270" fill="url(#paint2_linear)"/>`;
-		default:
-			return `<rect width="270" height="270" fill="url(#paint0_linear)"/>`;
-	}
+function backgroundRect(normalized: boolean): string {
+	const paint = normalized ? "paint0_linear" : "paint1_linear";
+	return `<rect width="270" height="270" fill="url(#${paint})"/>`;
 }
 
 function warningBadgeSvg(): string {
@@ -260,18 +248,6 @@ function buildSvg(args: {
         <stop stop-color="#EB9E9E"/>
         <stop offset="1" stop-color="#992222"/>
       </linearGradient>
-      <linearGradient id="paint2_linear" x1="0" y1="0" x2="269.553" y2="285.527" gradientUnits="userSpaceOnUse">
-        <stop stop-color="#2DB5FF"/>
-        <stop offset="1" stop-color="#145071"/>
-      </linearGradient>
-      <linearGradient id="paint3_linear" x1="0" y1="0" x2="269.553" y2="285.527" gradientUnits="userSpaceOnUse">
-        <stop stop-color="#EFB100"/>
-        <stop offset="1" stop-color="#5A4300"/>
-      </linearGradient>
-      <linearGradient id="paint4_linear" x1="0" y1="0" x2="269.553" y2="285.527" gradientUnits="userSpaceOnUse">
-        <stop stop-color="#74FD43"/>
-        <stop offset="1" stop-color="#1A3C0D"/>
-      </linearGradient>
     </defs>
   </svg>`;
 }
@@ -289,7 +265,7 @@ export async function renderNameImage(input: NameImageInput): Promise<string> {
 
 	const background = avatar
 		? avatarImageElement(avatar)
-		: backgroundRect(normalized, input.state);
+		: backgroundRect(normalized);
 	const warning = normalized ? "" : warningBadgeSvg();
 
 	return buildSvg({
