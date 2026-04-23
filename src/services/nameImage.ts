@@ -2,6 +2,7 @@ import { ens_beautify, ens_normalize } from "@adraffy/ens-normalize";
 import type { Env } from "../env";
 import { HttpError } from "../lib/errors";
 import { fetchImageBytes, resolveUriCached } from "./image";
+import SatoshiBold from "../fonts/Satoshi-Bold.ttf";
 
 export type NameImageInput = {
 	env: Env;
@@ -47,6 +48,17 @@ function bytesToBase64(buf: ArrayBuffer): string {
 		binary += String.fromCharCode(...arr.subarray(i, i + chunk));
 	}
 	return btoa(binary);
+}
+
+// Computed once at module load — the font is fixed, so the data URL is too.
+// Used by the SVG endpoint so the response is self-contained for browsers
+// and downstream renderers; the PNG endpoint never goes through this path
+// because resvg-wasm gets the font via `font.fontBuffers` instead.
+const SATOSHI_DATA_URL = `data:font/truetype;charset=utf-8;base64,${bytesToBase64(SatoshiBold)}`;
+const FONT_FACE_BLOCK = `<style type="text/css">@font-face{font-family:"Satoshi";font-style:normal;font-weight:600 900;src:url(${SATOSHI_DATA_URL});}</style>`;
+
+export function embedSatoshiFont(svg: string): string {
+	return svg.replace("<defs>", `<defs>${FONT_FACE_BLOCK}`);
 }
 
 const MAX_CHAR = 60;
