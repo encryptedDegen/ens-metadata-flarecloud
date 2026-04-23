@@ -100,7 +100,7 @@ export type GeneratedImageKey = {
 };
 
 function generatedKey(k: GeneratedImageKey): string {
-  return `generated/${k.network}/${k.contract.toLowerCase()}/${k.tokenHex}/${k.version}.svg`;
+  return `generated/${k.network}/${k.contract.toLowerCase()}/${k.tokenHex}/${k.version}.bin`;
 }
 
 export async function getGenerated(

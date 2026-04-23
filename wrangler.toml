@@ -34,3 +34,8 @@ fallthrough = true
 type = "Text"
 globs = ["**/*.svg"]
 fallthrough = true
+
+[[rules]]
+type = "CompiledWasm"
+globs = ["**/*.wasm"]
+fallthrough = true

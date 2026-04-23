@@ -50,10 +50,16 @@ function bytesToBase64(buf: ArrayBuffer): string {
 	return btoa(binary);
 }
 
-// Embed Satoshi-Bold as a base64 data URL once at module load. The reference
-// service (ens-metadata-service) bakes the font into every SVG so the image is
-// self-contained. Weight 600–900 mirrors the upstream @font-face declaration.
+// Computed once at module load — the font is fixed, so the data URL is too.
+// Used by the SVG endpoint so the response is self-contained for browsers
+// and downstream renderers; the PNG endpoint never goes through this path
+// because resvg-wasm gets the font via `font.fontBuffers` instead.
 const SATOSHI_DATA_URL = `data:font/truetype;charset=utf-8;base64,${bytesToBase64(SatoshiBold)}`;
+const FONT_FACE_BLOCK = `<style type="text/css">@font-face{font-family:"Satoshi";font-style:normal;font-weight:600 900;src:url(${SATOSHI_DATA_URL});}</style>`;
+
+export function embedSatoshiFont(svg: string): string {
+	return svg.replace("<defs>", `<defs>${FONT_FACE_BLOCK}`);
+}
 
 const MAX_CHAR = 60;
 
@@ -223,17 +229,9 @@ function buildSvg(args: {
       fill="white"
       filter="url(#dropShadow)">${args.domain}</text>
     <defs>
-      <style type="text/css">
-        @font-face {
-          font-family: "Satoshi";
-          font-style: normal;
-          font-weight: 600 900;
-          src: url(${SATOSHI_DATA_URL});
-        }
-      </style>
       <style>
         text {
-          font-family: 'Satoshi', 'Noto Color Emoji', 'Apple Color Emoji', sans-serif;
+          font-family: 'Satoshi', sans-serif;
           font-style: normal;
           font-variant-numeric: tabular-nums;
           font-weight: bold;
