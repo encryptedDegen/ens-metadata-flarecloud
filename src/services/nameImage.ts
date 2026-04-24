@@ -3,6 +3,7 @@ import type { Env } from "../env";
 import { HttpError } from "../lib/errors";
 import { fetchImageBytes, resolveUriCached } from "./image";
 import SatoshiBold from "../fonts/Satoshi-Bold.ttf";
+import { SATOSHI_ADVANCES_20PX } from "../fonts/satoshi-advances";
 
 export type NameImageInput = {
 	env: Env;
@@ -97,9 +98,10 @@ function textEllipsis(name: string): string {
 /**
  * Mirrors the reference `_getFontSize`. Reference measures on node-canvas at
  * 20px Satoshi-Bold with NotoColorEmoji fallback; we can't run node-canvas on
- * Workers, so we approximate per-grapheme. Advances tuned against the
- * reference output: ASCII ≈ 14px; CJK/Hangul/Kana ≈ 17px; emoji presentation
- * (U+1F000+) ≈ 20px; other graphemes ≈ 18px at 20px Satoshi.
+ * Workers, but we can read per-glyph horizontal advances directly from the
+ * bundled TTF (see `scripts/gen-satoshi-advances.mjs`). For every grapheme
+ * not in the baked table (CJK, Arabic, emoji, etc.) fall back to a
+ * per-script estimate so we still produce a reasonable size.
  */
 function getFontSize(name: string): number {
 	const segmenter = new Intl.Segmenter();
@@ -114,7 +116,10 @@ function getFontSize(name: string): number {
 }
 
 function estimateAdvance(cp: number, segment: string): number {
-	if (cp < 0x0300 && segment.length === 1) return 14; // ASCII-like
+	if (segment.length === 1) {
+		const measured = SATOSHI_ADVANCES_20PX[segment];
+		if (measured !== undefined) return measured;
+	}
 	if (cp >= 0x1f000) return 20; // emoji supplementary plane
 	if (
 		(cp >= 0x3000 && cp <= 0x9fff) ||
@@ -123,7 +128,7 @@ function estimateAdvance(cp: number, segment: string): number {
 	) {
 		return 17; // CJK ideographs, Kana, Hangul, CJK compatibility
 	}
-	return 18; // arrows, math, symbols, Arabic, Hebrew, etc.
+	return 14; // arrows, math, symbols, Arabic, Hebrew, etc.
 }
 
 function addSpan(str: string, splitAt: number): string {
