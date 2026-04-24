@@ -8,6 +8,9 @@ export type CachedImage = {
   lastModified?: string;
   fetchedAt: number;
   sanitized: boolean;
+  // Only set on `generated/*` entries. Lets us emit a name Cache-Tag on
+  // cache-hit responses without another subgraph roundtrip.
+  name?: string;
 };
 
 function ipfsKey(ref: IpfsRef): string {
@@ -44,6 +47,7 @@ async function readObject(obj: R2ObjectBody | null): Promise<CachedImage | null>
     lastModified: meta.lastModified,
     fetchedAt: Number(meta.fetchedAt ?? "0"),
     sanitized: meta.sanitized === "1",
+    name: meta.name,
   };
 }
 
@@ -124,9 +128,31 @@ export async function putGenerated(
   k: GeneratedImageKey,
   bytes: ArrayBuffer,
   contentType: string,
+  name?: string,
 ): Promise<void> {
+  const custom: Record<string, string> = { fetchedAt: String(Date.now()) };
+  if (name) custom.name = name;
   await env.IPFS_CACHE.put(generatedKey(k), bytes, {
     httpMetadata: { contentType },
-    customMetadata: { fetchedAt: String(Date.now()) },
+    customMetadata: custom,
   });
+}
+
+/**
+ * Delete every `generated/{network}/{contract}/{tokenHex}/*` entry — covers
+ * all cache versions in one shot. R2.list returns up to 1000 per call; the
+ * prefix here contains at most a handful of entries, so pagination isn't
+ * needed in practice.
+ */
+export async function deleteGeneratedForToken(
+  env: Env,
+  network: string,
+  contract: string,
+  tokenHex: string,
+): Promise<number> {
+  const prefix = `generated/${network}/${contract.toLowerCase()}/${tokenHex.toLowerCase()}/`;
+  const listed = await env.IPFS_CACHE.list({ prefix });
+  if (listed.objects.length === 0) return 0;
+  await env.IPFS_CACHE.delete(listed.objects.map((o) => o.key));
+  return listed.objects.length;
 }

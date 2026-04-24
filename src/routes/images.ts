@@ -14,17 +14,23 @@ import {
   NetworkParam,
 } from "../schemas";
 import { CACHE_API_MAX_AGE } from "../constants";
+import { cacheTagHeader, nameTag } from "../lib/cacheTags";
 
 const DEFAULT_IMAGES: Record<AvatarKind, string> = {
   avatar: defaultAvatarSvg,
   header: defaultHeaderSvg,
 };
 
-function defaultImageResponse(kind: AvatarKind): Response {
+function defaultImageResponse(
+  kind: AvatarKind,
+  network: string,
+  name: string,
+): Response {
   return new Response(DEFAULT_IMAGES[kind], {
     headers: {
       "content-type": SVG_MIME,
       "cache-control": `public, max-age=${CACHE_API_MAX_AGE}`,
+      "cache-tag": cacheTagHeader(nameTag(network, name)),
     },
   });
 }
@@ -115,6 +121,7 @@ function buildImageRoutes(kind: AvatarKind): OpenAPIHono<{ Bindings: Env }> {
       const headers: Record<string, string> = {
         "content-type": image.contentType,
         "cache-control": `public, max-age=${CACHE_API_MAX_AGE}`,
+        "cache-tag": cacheTagHeader(nameTag(network, name)),
       };
       if (image.etag) headers.etag = image.etag;
 
@@ -129,7 +136,7 @@ function buildImageRoutes(kind: AvatarKind): OpenAPIHono<{ Bindings: Env }> {
       // 404 = record not set; 502 = record set but upstream fetch failed.
       // Serve the default for both. 415 stays a real error.
       if (err instanceof HttpError && (err.status === 404 || err.status === 502)) {
-        return defaultImageResponse(kind) as never;
+        return defaultImageResponse(kind, network, name) as never;
       }
       throw err;
     }

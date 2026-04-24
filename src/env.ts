@@ -21,4 +21,11 @@ export type Env = {
   OPTIMISM_RPC_URL?: string;
   ARBITRUM_RPC_URL?: string;
   POLYGON_RPC_URL?: string;
+
+  // Cache-invalidation endpoint. When any of these are unset the
+  // `/cache/invalidate` endpoint returns 503; every other route is
+  // unaffected. Set them as secrets (`wrangler secret put ...`).
+  CACHE_INVALIDATION_TOKEN?: string;
+  CF_API_TOKEN?: string;
+  CF_ZONE_ID?: string;
 };

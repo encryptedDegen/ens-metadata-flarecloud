@@ -9,6 +9,7 @@ import {
   NetworkParam,
   TokenIdParam,
 } from "../schemas";
+import { cacheTagHeader, nameTag, tokenTag } from "../lib/cacheTags";
 
 export const nameImageRoutes = new OpenAPIHono<{ Bindings: Env }>();
 
@@ -58,17 +59,22 @@ const pngRoute = createRoute({
   },
 });
 
-function respond(body: ArrayBuffer | string, contentType: string): Response {
-  return new Response(body, {
-    headers: {
-      "content-type": contentType,
-      "cache-control": `public, max-age=${MAX_AGE}`,
-    },
-  });
+function respond(
+  body: ArrayBuffer | string,
+  contentType: string,
+  tags: string[],
+): Response {
+  const headers: Record<string, string> = {
+    "content-type": contentType,
+    "cache-control": `public, max-age=${MAX_AGE}`,
+  };
+  const tag = cacheTagHeader(...tags);
+  if (tag) headers["cache-tag"] = tag;
+  return new Response(body, { headers });
 }
 
 type RenderResult =
-  | { kind: "svg"; svg: string }
+  | { kind: "svg"; svg: string; name: string }
   | { kind: "response"; response: Response };
 
 async function renderSvgFromParams(
@@ -95,7 +101,7 @@ async function renderSvgFromParams(
     name,
     tokenHex: resolved.tokenHex,
   });
-  return { kind: "svg", svg };
+  return { kind: "svg", svg, name };
 }
 
 function utf8Bytes(s: string): ArrayBuffer {
@@ -110,16 +116,34 @@ function uint8Bytes(u: Uint8Array): ArrayBuffer {
   return u.buffer.slice(u.byteOffset, u.byteOffset + u.byteLength) as ArrayBuffer;
 }
 
+function tagsFor(
+  networkName: string,
+  contract: string,
+  tokenHex: string,
+  name: string | undefined,
+): string[] {
+  const tags = [tokenTag(networkName, contract, tokenHex)];
+  if (name) tags.push(nameTag(networkName, name));
+  return tags;
+}
+
 nameImageRoutes.openapi(svgRoute, async (c) => {
   const { network: networkName, contract, tokenId } = c.req.valid("param");
+  const tokenHex = tokenIdToHex(tokenId);
   const cacheKey = {
     network: networkName,
     contract,
-    tokenHex: tokenIdToHex(tokenId),
+    tokenHex,
     version: SVG_CACHE_VERSION,
   };
   const hit = await getGenerated(c.env, cacheKey);
-  if (hit) return respond(hit.bytes, hit.contentType) as never;
+  if (hit) {
+    return respond(
+      hit.bytes,
+      hit.contentType,
+      tagsFor(networkName, contract, tokenHex, hit.name),
+    ) as never;
+  }
 
   const result = await renderSvgFromParams(c, networkName, contract, tokenId);
   if (result.kind === "response") return result.response as never;
@@ -127,20 +151,33 @@ nameImageRoutes.openapi(svgRoute, async (c) => {
   const { embedSatoshiFont } = await import("../services/nameImage");
   const selfContained = embedSatoshiFont(result.svg);
   const bytes = utf8Bytes(selfContained);
-  c.executionCtx.waitUntil(putGenerated(c.env, cacheKey, bytes, SVG_CONTENT_TYPE));
-  return respond(selfContained, SVG_CONTENT_TYPE) as never;
+  c.executionCtx.waitUntil(
+    putGenerated(c.env, cacheKey, bytes, SVG_CONTENT_TYPE, result.name),
+  );
+  return respond(
+    selfContained,
+    SVG_CONTENT_TYPE,
+    tagsFor(networkName, contract, tokenHex, result.name),
+  ) as never;
 });
 
 nameImageRoutes.openapi(pngRoute, async (c) => {
   const { network: networkName, contract, tokenId } = c.req.valid("param");
+  const tokenHex = tokenIdToHex(tokenId);
   const cacheKey = {
     network: networkName,
     contract,
-    tokenHex: tokenIdToHex(tokenId),
+    tokenHex,
     version: PNG_CACHE_VERSION,
   };
   const hit = await getGenerated(c.env, cacheKey);
-  if (hit) return respond(hit.bytes, hit.contentType) as never;
+  if (hit) {
+    return respond(
+      hit.bytes,
+      hit.contentType,
+      tagsFor(networkName, contract, tokenHex, hit.name),
+    ) as never;
+  }
 
   const rasterizerPromise = import("../services/rasterize");
   const result = await renderSvgFromParams(c, networkName, contract, tokenId);
@@ -149,6 +186,12 @@ nameImageRoutes.openapi(pngRoute, async (c) => {
   const { rasterizeNameImageSvg } = await rasterizerPromise;
   const png = await rasterizeNameImageSvg(result.svg);
   const bytes = uint8Bytes(png);
-  c.executionCtx.waitUntil(putGenerated(c.env, cacheKey, bytes, PNG_CONTENT_TYPE));
-  return respond(bytes, PNG_CONTENT_TYPE) as never;
+  c.executionCtx.waitUntil(
+    putGenerated(c.env, cacheKey, bytes, PNG_CONTENT_TYPE, result.name),
+  );
+  return respond(
+    bytes,
+    PNG_CONTENT_TYPE,
+    tagsFor(networkName, contract, tokenHex, result.name),
+  ) as never;
 });
