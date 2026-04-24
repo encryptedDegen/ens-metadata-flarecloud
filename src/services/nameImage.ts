@@ -118,7 +118,7 @@ function getFontSize(name: string): number {
 		prev = segment;
 	}
 	if (width === 0) return 32;
-	const fontSize = Math.floor(20 * (200 / width));
+	const fontSize = Math.floor(20 * (180 / width));
 	return fontSize < 34 ? fontSize : 32;
 }
 
