@@ -56,9 +56,19 @@ end-to-end verification of the CDN purge.
 ```jsonc
 {
   "items": [
+    // Preferred shape when the indexer sees a token event — contract is
+    // inferred from the service's known-contract list.
+    { "network": "mainnet", "tokenId": "123" },
+
+    // Name-only — useful when you only know the name from the event.
     { "network": "mainnet", "name": "foo.eth" },
-    { "network": "mainnet", "contract": "0x57f1887a8bf19b14fc0df6fd9b2acc9af147ea85", "tokenId": "123" },
-    { "network": "mainnet", "name": "bar.eth", "contract": "0xD4416b13d2b3a9aBae7AcD5D6C2BbDBE25686401", "tokenId": "456" }
+
+    // Name + tokenId — both signals, fully precise.
+    { "network": "mainnet", "name": "bar.eth", "tokenId": "456" },
+
+    // Targeted at a single contract — only when you want to narrow
+    // invalidation; typically unnecessary.
+    { "network": "mainnet", "contract": "0xD4416b13d2b3a9aBae7AcD5D6C2BbDBE25686401", "tokenId": "789" }
   ]
 }
 ```
@@ -68,18 +78,22 @@ end-to-end verification of the CDN purge.
 - **`network`** — required. One of `mainnet`, `sepolia`, `holesky`.
 - **`name`** — optional. Fully-qualified ENS name, lowercased, normalized.
   e.g. `"foo.eth"` or `"sub.foo.eth"`.
-- **`contract`** — optional. `0x`-prefixed EVM address of either the v1
-  base registrar (`0x57f1887a…ea85`) or v2 name wrapper
-  (`0xD4416b1…6401`). Required together with `tokenId`.
-- **`tokenId`** — optional. Decimal or `0x`-hex token id. Required
-  together with `contract`.
+- **`tokenId`** — optional. Decimal or `0x`-hex token id from the NFT
+  contract that fired the event. When sent without `contract`, the
+  service tries every contract in its `TOKEN_CONTRACTS` list against
+  this tokenId — so the indexer doesn't need to know whether the
+  event came from the base registrar or the name wrapper.
+- **`contract`** — optional. `0x`-prefixed EVM address of a specific NFT
+  contract. Only needed when you want to narrow invalidation to that
+  one contract; otherwise omit it. Requires `tokenId`.
 
-**Each item must contain** `name` **or both** `contract` + `tokenId`.
-Providing all three is allowed and gives the most precise invalidation.
-Name-only items trigger R2 deletes against both v1 (labelhash of the
-leftmost label) and v2 (namehash) candidate keys so the rendered
-image is actually removed; extra deletes on keys that don't exist are
-harmless no-ops.
+**Each item must contain `name` or `tokenId` (or both).** Missing both
+is rejected with `400`; sending `contract` without `tokenId` is also
+rejected. If both `name` and `tokenId` are provided, invalidation is
+maximally precise. Name-only items derive a tokenId per contract
+(labelhash for the base registrar, namehash for the name wrapper).
+Extra deletes on (contract, tokenId) pairs that don't actually hold
+entries are harmless no-ops.
 
 ### Response body
 
@@ -154,8 +168,9 @@ Indexer strategy:
   single call with up to 100 items. Most record-change bursts (e.g. a
   single tx touching multiple records on one name) collapse to one
   network call.
-- **De-duplicate.** Dedupe items by `(network, name)` /
-  `(network, contract, tokenId)` before sending.
+- **De-duplicate.** Dedupe items by the tuple you sent —
+  `(network, name)`, `(network, tokenId)`, or
+  `(network, contract, tokenId)` — before flushing.
 - **Back off.** On `502` (CF purge failure) or `429`, use exponential
   backoff starting at 1 s, max ~60 s. The KV + R2 deletes are already
   done, so backoff only delays the CDN purge.

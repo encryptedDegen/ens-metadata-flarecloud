@@ -6,7 +6,7 @@ import { badRequest, HttpError } from "../lib/errors";
 import { nameTag, tokenTag } from "../lib/cacheTags";
 import { getNetwork } from "../lib/networks";
 import { tokenIdToHex } from "../services/domain";
-import { BASE_REGISTRAR_V1, NAME_WRAPPER_V2 } from "../constants";
+import { TOKEN_CONTRACTS } from "../constants";
 import { deleteResolved } from "../storage/kvCache";
 import { deleteGeneratedForToken } from "../storage/r2Cache";
 import { ErrorSchema } from "../schemas";
@@ -20,10 +20,12 @@ const Item = z
     contract: z.string().min(1).optional(),
     tokenId: z.string().min(1).optional(),
   })
-  .refine(
-    (d) => (d.name && d.name.length > 0) || (d.contract && d.tokenId),
-    { message: "each item requires 'name' or both 'contract' and 'tokenId'" },
-  );
+  .refine((d) => d.name || d.tokenId, {
+    message: "each item requires 'name' or 'tokenId'",
+  })
+  .refine((d) => !d.contract || d.tokenId, {
+    message: "'contract' requires 'tokenId'",
+  });
 
 const RequestBody = z.object({
   items: z.array(Item).min(1).max(100),
@@ -53,7 +55,7 @@ const route = createRoute({
   tags: ["cache"],
   summary: "Invalidate cached name image, avatar, and header for ENS names",
   description:
-    "Deletes KV resolver entries and R2 generated-image entries, then purges the Cloudflare edge cache by tag. Each item needs `name` or both `contract` + `tokenId`; if only `name` is given, both v1 base-registrar and v2 name-wrapper candidates are purged. Requires `Authorization: Bearer <CACHE_INVALIDATION_TOKEN>`.",
+    "Deletes KV resolver entries and R2 generated-image entries, then purges the Cloudflare edge cache by tag. Each item needs `name` or `tokenId` (or both). When `contract` is omitted, every contract in the service's `TOKEN_CONTRACTS` list is invalidated against the given token — the indexer doesn't need to know which contract a given tokenId belongs to. Requires `Authorization: Bearer <CACHE_INVALIDATION_TOKEN>`.",
   security: [{ bearerAuth: [] }],
   request: {
     body: { content: { "application/json": { schema: RequestBody } } },
@@ -85,6 +87,44 @@ type PerItem = {
   tags: string[];
 };
 
+/**
+ * Yield every (contract, tokenHex) pair the service should invalidate for
+ * this item, given whichever of {name, tokenId, contract} were supplied.
+ * Extra pairs against contracts that don't actually hold this token are
+ * harmless — the R2 deletes and tag purges are no-ops on missing entries.
+ */
+function contractsToInvalidate(item: Item): Array<{ contract: string; tokenHex: `0x${string}` }> {
+  const out: Array<{ contract: string; tokenHex: `0x${string}` }> = [];
+
+  if (item.contract && item.tokenId) {
+    if (!isAddress(item.contract)) {
+      throw badRequest(`invalid contract address: ${item.contract}`);
+    }
+    out.push({ contract: item.contract, tokenHex: tokenIdToHex(item.tokenId) });
+    return out;
+  }
+
+  if (item.tokenId) {
+    const tokenHex = tokenIdToHex(item.tokenId);
+    for (const c of TOKEN_CONTRACTS) out.push({ contract: c.address, tokenHex });
+    return out;
+  }
+
+  // name-only: derive tokenHex per contract using its `derivation` kind.
+  if (item.name) {
+    for (const c of TOKEN_CONTRACTS) {
+      if (c.derivation === "label") {
+        const label = item.name.split(".")[0];
+        if (!label) continue;
+        out.push({ contract: c.address, tokenHex: labelhash(label) });
+      } else {
+        out.push({ contract: c.address, tokenHex: namehash(item.name) });
+      }
+    }
+  }
+  return out;
+}
+
 async function invalidateItem(env: Env, item: Item): Promise<PerItem> {
   if (!getNetwork(env, item.network)) {
     throw badRequest(`unknown network: ${item.network}`);
@@ -110,40 +150,12 @@ async function invalidateItem(env: Env, item: Item): Promise<PerItem> {
     );
   }
 
-  if (item.contract && item.tokenId) {
-    if (!isAddress(item.contract)) {
-      throw badRequest(`invalid contract address: ${item.contract}`);
-    }
-    const tokenHex = tokenIdToHex(item.tokenId);
-    tags.add(tokenTag(item.network, item.contract, tokenHex));
+  for (const { contract, tokenHex } of contractsToInvalidate(item)) {
+    tags.add(tokenTag(item.network, contract, tokenHex));
     tasks.push(
-      deleteGeneratedForToken(env, item.network, item.contract, tokenHex).then(
-        (n) => {
-          r2Deleted += n;
-        },
-      ),
-    );
-  } else if (item.name) {
-    // No token was provided: try both contract candidates derived from the
-    // name so the R2 generated-image entries actually get removed.
-    const label = item.name.split(".")[0];
-    if (label) {
-      const v1Token = labelhash(label);
-      tasks.push(
-        deleteGeneratedForToken(env, item.network, BASE_REGISTRAR_V1, v1Token).then(
-          (n) => {
-            r2Deleted += n;
-          },
-        ),
-      );
-    }
-    const v2Token = namehash(item.name);
-    tasks.push(
-      deleteGeneratedForToken(env, item.network, NAME_WRAPPER_V2, v2Token).then(
-        (n) => {
-          r2Deleted += n;
-        },
-      ),
+      deleteGeneratedForToken(env, item.network, contract, tokenHex).then((n) => {
+        r2Deleted += n;
+      }),
     );
   }
 
