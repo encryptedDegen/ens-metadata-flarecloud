@@ -5,11 +5,17 @@ import { Scalar } from "@scalar/hono-api-reference";
 import type { Env } from "./env";
 import { HttpError } from "./lib/errors";
 import { avatarRoutes, headerRoutes } from "./routes/images";
+import { cacheInvalidateRoutes } from "./routes/cacheInvalidate";
 import { metadataRoutes } from "./routes/metadata";
 import { nameImageRoutes } from "./routes/nameImage";
 import { queryNFTRoutes } from "./routes/queryNFT";
 
 const app = new OpenAPIHono<{ Bindings: Env }>();
+
+app.openAPIRegistry.registerComponent("securitySchemes", "bearerAuth", {
+  type: "http",
+  scheme: "bearer",
+});
 
 app.use("*", cors());
 
@@ -18,6 +24,7 @@ app.route("/", headerRoutes);
 app.route("/", queryNFTRoutes);
 app.route("/", nameImageRoutes);
 app.route("/", metadataRoutes);
+app.route("/", cacheInvalidateRoutes);
 
 app.doc("/openapi.json", {
   openapi: "3.1.0",
