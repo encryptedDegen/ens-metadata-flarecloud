@@ -3,7 +3,7 @@ import type { Env } from "../env";
 import { HttpError } from "../lib/errors";
 import { fetchImageBytes, resolveUriCached } from "./image";
 import SatoshiBold from "../fonts/Satoshi-Bold.ttf";
-import { SATOSHI_ADVANCES_20PX } from "../fonts/satoshi-advances";
+import { SATOSHI_ADVANCES_20PX, SATOSHI_KERN_20PX } from "../fonts/satoshi-advances";
 
 export type NameImageInput = {
 	env: Env;
@@ -98,17 +98,24 @@ function textEllipsis(name: string): string {
 /**
  * Mirrors the reference `_getFontSize`. Reference measures on node-canvas at
  * 20px Satoshi-Bold with NotoColorEmoji fallback; we can't run node-canvas on
- * Workers, but we can read per-glyph horizontal advances directly from the
- * bundled TTF (see `scripts/gen-satoshi-advances.mjs`). For every grapheme
+ * Workers, but we can read per-glyph horizontal advances and GPOS kern pairs
+ * directly from the bundled TTF (see `scripts/gen-satoshi-advances.mjs`).
+ * Kerning matters: e.g. `7` has a +50-unit self-kern, so a name full of 7s
+ * renders ~10% wider than the advance sum alone suggests. For every grapheme
  * not in the baked table (CJK, Arabic, emoji, etc.) fall back to a
  * per-script estimate so we still produce a reasonable size.
  */
 function getFontSize(name: string): number {
 	const segmenter = new Intl.Segmenter();
 	let width = 0;
+	let prev: string | null = null;
 	for (const { segment } of segmenter.segment(name)) {
 		const cp = segment.codePointAt(0) ?? 0;
 		width += estimateAdvance(cp, segment);
+		if (prev !== null && segment.length === 1 && prev.length === 1) {
+			width += SATOSHI_KERN_20PX[prev + segment] ?? 0;
+		}
+		prev = segment;
 	}
 	if (width === 0) return 32;
 	const fontSize = Math.floor(20 * (200 / width));
