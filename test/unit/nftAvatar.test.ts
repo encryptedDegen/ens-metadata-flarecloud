@@ -265,4 +265,28 @@ describe("resolveNftAvatar", () => {
 		);
 		expect(result.imageUri).toBe("ipns://images.example/avatar.png");
 	});
+
+	it("resolves Arweave metadata through arweave.net", async () => {
+		const readContract = mockReadContract();
+		readContract.mockResolvedValueOnce("ar://abcDEF123/token.json");
+		const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+			new Response(JSON.stringify({ image: "ar://imageTx/avatar.png" })),
+		);
+
+		const result = await resolveNftAvatar(
+			testEnv,
+			{
+				chainId: 1,
+				namespace: "erc721",
+				contract: "0x0000000000000000000000000000000000000002",
+				tokenId: "123",
+			},
+			null,
+		);
+
+		expect(fetchMock.mock.calls[0]?.[0]).toBe(
+			"https://arweave.net/abcDEF123/token.json",
+		);
+		expect(result.imageUri).toBe("ar://imageTx/avatar.png");
+	});
 });

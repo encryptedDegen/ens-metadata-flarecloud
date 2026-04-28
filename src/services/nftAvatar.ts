@@ -18,7 +18,7 @@ import { createPublicClient, http, type PublicClient, getAddress } from "viem";
 import type { Env } from "../env";
 import { getNftChain } from "../lib/nftChains";
 import { badRequest, notFound, upstream, unsupported } from "../lib/errors";
-import { decodeDataUri } from "./avatarResolver";
+import { arweaveGatewayUrl, decodeDataUri } from "./avatarResolver";
 import { fetchIpfs, fetchIpns, parseIpfs, parseIpns } from "./ipfs";
 import { HTTPS_IMAGE_TIMEOUT_MS, RPC_TIMEOUT_MS } from "../constants";
 
@@ -182,10 +182,10 @@ async function fetchMetadataJson(env: Env, uri: string): Promise<unknown> {
 		const res = await fetchIpns(env, ref);
 		return parseJson(await res.text(), uri);
 	}
-	if (uri.startsWith("ar://")) {
-		const rest = uri.slice("ar://".length);
-		if (!rest) throw badRequest(`malformed ar:// URI in token metadata: ${uri}`);
-		return fetchHttpsJson(env, `https://arweave.net/${rest}`);
+	if (/^ar:\/\//i.test(uri)) {
+		const url = arweaveGatewayUrl(uri);
+		if (!url) throw badRequest(`malformed ar:// URI in token metadata: ${uri}`);
+		return fetchHttpsJson(env, url);
 	}
 	if (/^https?:\/\//i.test(uri)) {
 		return fetchHttpsJson(env, uri);

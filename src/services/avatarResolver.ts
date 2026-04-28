@@ -33,19 +33,26 @@ export async function resolveRecord(
 // arweave.net is the canonical public endpoint and supports the same path
 // scheme as `ar://TXID[/path]`.
 const ARWEAVE_GATEWAY = "https://arweave.net";
+const ARWEAVE_RE = /^ar:\/\/([^/]+)(\/.*)?$/i;
+
+export function arweaveGatewayUrl(uri: string): string | null {
+  const match = uri.match(ARWEAVE_RE);
+  if (!match) return null;
+  return `${ARWEAVE_GATEWAY}/${match[1]}${match[2] ?? ""}`;
+}
 
 export function classifyUri(uri: string): ResolvedUri {
   if (uri.startsWith("data:")) return { kind: "data", uri };
   if (uri.startsWith("ipfs://") || uri.startsWith("ipfs/")) return { kind: "ipfs", uri };
   if (/^(?:ipns:\/\/|ipns\/)/i.test(uri)) return { kind: "ipns", uri };
 
-  if (uri.startsWith("ar://")) {
+  if (/^ar:\/\//i.test(uri)) {
     // Rewrite to the Arweave gateway and let the HTTPS pipeline take over —
     // arweave.net responds with proper Content-Type/ETag/Content-Length for
     // the existing cache + revalidation logic.
-    const rest = uri.slice("ar://".length);
-    if (!rest) throw unsupported("malformed ar:// URI");
-    return { kind: "https", url: `${ARWEAVE_GATEWAY}/${rest}` };
+    const url = arweaveGatewayUrl(uri);
+    if (!url) throw unsupported("malformed ar:// URI");
+    return { kind: "https", url };
   }
 
   const normalized = uri.startsWith("did:nft:")

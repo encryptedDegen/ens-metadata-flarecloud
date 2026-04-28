@@ -290,6 +290,23 @@ describe("fetchImageBytes without content-length", () => {
     expect(new Uint8Array(image.body as ArrayBuffer)).toEqual(PNG_BYTES);
   });
 
+  it("resolves arweave images through arweave.net", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(chunkStream([PNG_BYTES]), {
+        headers: { "content-type": "image/png" },
+      }),
+    );
+
+    const ctx = createExecutionContext();
+    const image = await fetchImageBytes(testEnv, "ar://abcDEF123/avatar.png", ctx);
+
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      "https://arweave.net/abcDEF123/avatar.png",
+    );
+    expect(image.contentType).toBe("image/png");
+    expect(new Uint8Array(image.body as ArrayBuffer)).toEqual(PNG_BYTES);
+  });
+
   it("rejects oversize HTTPS images and cancels the reader before EOF", async () => {
     const calls = { count: 0 };
     const body = overflowStream();
