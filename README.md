@@ -11,8 +11,8 @@ A subset of [`ensdomains/ens-metadata-service`](https://github.com/ensdomains/en
 | Endpoint                                        | Upstream |       Flarecloud        |
 | ----------------------------------------------- | :------: | :---------------------: |
 | `GET /`                                         |    ✓     |     ✓ (Scalar docs)     |
-| `GET /docs`                                     |    ✓     |       ✗ (use `/`)       |
-| `GET /favicon.ico`                              |    ✓     |            ✗            |
+| `GET /docs`                                     |    ✓     |     ✓ (Scalar docs)     |
+| `GET /favicon.ico`                              |    ✓     |         ✓ (204)         |
 | `GET /{network}/{contract}/{tokenId}`           |    ✓     |            ✓            |
 | `GET /{network}/{contract}/{tokenId}/image`     |    ✓     | ✗ (needs `node-canvas`) |
 | `GET /{network}/{contract}/{tokenId}/rasterize` |    ✓     |   ✗ (needs Puppeteer)   |
@@ -23,6 +23,7 @@ A subset of [`ensdomains/ens-metadata-service`](https://github.com/ensdomains/en
 | `GET /queryNFT`                                 |    ✓     |            ✓            |
 | `GET /preview/{name}`                           |    ✓     |            ✗            |
 | `GET /openapi.json`                             |    ✗     |            ✓            |
+| `GET /llms.txt`                                 |    ✗     |            ✓            |
 
 `network` is one of `mainnet`, `sepolia`, `holesky`. `contract` is the BaseRegistrar (v1) or NameWrapper (v2) address.
 
