@@ -29,17 +29,15 @@ export async function fetchIpfs(env: Env, ref: IpfsRef): Promise<Response> {
   const attempts = list.map(async (gw, i) => {
     const url = `${gw}/ipfs/${ref.cid}${ref.path}`;
     const ctrl = controllers[i]!;
-    const headerTimeout = setTimeout(() => ctrl.abort(), IPFS_GATEWAY_TIMEOUT_MS);
-    try {
-      const res = await fetch(url, {
-        cf: { cacheTtl: 3600, cacheEverything: true },
-        signal: ctrl.signal,
-      });
-      if (!res.ok) throw new Error(`${gw} → ${res.status}`);
-      return { res, index: i };
-    } finally {
-      clearTimeout(headerTimeout);
-    }
+    const res = await fetch(url, {
+      cf: { cacheTtl: 3600, cacheEverything: true },
+      signal: AbortSignal.any([
+        ctrl.signal,
+        AbortSignal.timeout(IPFS_GATEWAY_TIMEOUT_MS),
+      ]),
+    });
+    if (!res.ok) throw new Error(`${gw} → ${res.status}`);
+    return { res, index: i };
   });
 
   let winner: { res: Response; index: number };
