@@ -8,7 +8,7 @@ import {
   type AvatarKind,
 } from "./avatarResolver";
 import { createClient, getOwner, normalizeName } from "./ens";
-import { fetchIpfs, parseIpfs } from "./ipfs";
+import { fetchIpfs, fetchIpns, parseIpfs, parseIpns } from "./ipfs";
 import { resolveNftAvatar } from "./nftAvatar";
 import { sanitizeSvg } from "./sanitize";
 import { deleteResolved, getResolved, putResolved } from "../storage/kvCache";
@@ -208,6 +208,24 @@ export async function fetchImageBytes(
         putIpfs(env, ref, stored, image.contentType, isSvgMime(image.contentType)),
       );
       return { ...image, etag };
+    }
+
+    case "ipns": {
+      const ref = parseIpns(uri);
+      if (!ref) throw badRequest(`invalid ipns URI: ${uri}`);
+      const res = await fetchIpns(env, ref);
+      if (advertisedLengthExceeds(res.headers, MAX_IMAGE_BYTES)) {
+        throw upstream(
+          `image too large: content-length ${res.headers.get("content-length")} > ${MAX_IMAGE_BYTES}`,
+        );
+      }
+      const headerType = res.headers.get("content-type");
+      const rawBytes = await readResponseBytes(
+        res,
+        !headerType || !res.headers.has("content-length"),
+      );
+      const rawType = headerType ?? sniffMime(new Uint8Array(rawBytes));
+      return sanitizeIfSvg(rawBytes, rawType);
     }
 
     case "https": {

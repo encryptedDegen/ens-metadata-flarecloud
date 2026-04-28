@@ -10,6 +10,13 @@ describe("classifyUri", () => {
     expect(classifyUri("ipfs://QmTest").kind).toBe("ipfs");
   });
 
+  it("classifies ipns URIs", () => {
+    expect(classifyUri("ipns://vitalik.eth/avatar.png")).toEqual({
+      kind: "ipns",
+      uri: "ipns://vitalik.eth/avatar.png",
+    });
+  });
+
   it("classifies https URIs", () => {
     const r = classifyUri("https://example.com/x.png");
     expect(r.kind).toBe("https");
@@ -25,6 +32,19 @@ describe("classifyUri", () => {
       expect(r.chainId).toBe(1);
       expect(r.tokenId).toBe("123");
     }
+  });
+
+  it("normalizes did:nft URIs before classifying eip155 NFT references", () => {
+    const r = classifyUri(
+      "did:nft:eip155:1_erc1155:0x57f1887a8BF19b14fC0dF6Fd9B2acc9Af147eA85_123",
+    );
+    expect(r).toMatchObject({
+      kind: "eip155",
+      chainId: 1,
+      namespace: "erc1155",
+      contract: "0x57f1887a8BF19b14fC0dF6Fd9B2acc9Af147eA85",
+      tokenId: "123",
+    });
   });
 
   it("throws on unknown schemes", () => {

@@ -7,12 +7,24 @@ export type IpfsRef = {
   path: string;
 };
 
+export type IpnsRef = {
+  target: string;
+  path: string;
+};
+
 const CID_RE = /^(?:ipfs:\/\/)?(?:ipfs\/)?((?:Qm[1-9A-HJ-NP-Za-km-z]{44}|b[A-Za-z2-7]{58,}))(\/.+)?$/;
+const IPNS_RE = /^(?:ipns:\/\/|ipns\/)([^/]+)(\/.*)?$/i;
 
 export function parseIpfs(uri: string): IpfsRef | null {
   const m = uri.match(CID_RE);
   if (!m) return null;
   return { cid: m[1]!, path: m[2] ?? "" };
+}
+
+export function parseIpns(uri: string): IpnsRef | null {
+  const m = uri.match(IPNS_RE);
+  if (!m) return null;
+  return { target: m[1]!, path: m[2] ?? "" };
 }
 
 function gateways(env: Env): string[] {
@@ -21,13 +33,17 @@ function gateways(env: Env): string[] {
     .filter(Boolean);
 }
 
-export async function fetchIpfs(env: Env, ref: IpfsRef): Promise<Response> {
+async function fetchFromGateways(
+  env: Env,
+  pathForGateway: (gateway: string) => string,
+  label: string,
+): Promise<Response> {
   const list = gateways(env);
   if (list.length === 0) throw upstream("no IPFS gateways configured");
 
   const controllers = list.map(() => new AbortController());
   const attempts = list.map(async (gw, i) => {
-    const url = `${gw}/ipfs/${ref.cid}${ref.path}`;
+    const url = pathForGateway(gw);
     const ctrl = controllers[i]!;
     const res = await fetch(url, {
       cf: { cacheTtl: 3600, cacheEverything: true },
@@ -36,7 +52,7 @@ export async function fetchIpfs(env: Env, ref: IpfsRef): Promise<Response> {
         AbortSignal.timeout(IPFS_GATEWAY_TIMEOUT_MS),
       ]),
     });
-    if (!res.ok) throw new Error(`${gw} → ${res.status}`);
+    if (!res.ok) throw new Error(`${gw} -> ${res.status}`);
     return { res, index: i };
   });
 
@@ -50,11 +66,27 @@ export async function fetchIpfs(env: Env, ref: IpfsRef): Promise<Response> {
         : e instanceof Error
           ? e.message
           : String(e);
-    throw upstream(`all IPFS gateways failed: ${errs}`, e);
+    throw upstream(`all ${label} gateways failed: ${errs}`, e);
   }
 
   for (let i = 0; i < controllers.length; i++) {
     if (i !== winner.index) controllers[i]!.abort();
   }
   return winner.res;
+}
+
+export async function fetchIpfs(env: Env, ref: IpfsRef): Promise<Response> {
+  return fetchFromGateways(
+    env,
+    (gw) => `${gw}/ipfs/${ref.cid}${ref.path}`,
+    "IPFS",
+  );
+}
+
+export async function fetchIpns(env: Env, ref: IpnsRef): Promise<Response> {
+  return fetchFromGateways(
+    env,
+    (gw) => `${gw}/ipns/${ref.target}${ref.path}`,
+    "IPNS",
+  );
 }

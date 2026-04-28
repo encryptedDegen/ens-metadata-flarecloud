@@ -19,7 +19,7 @@ import type { Env } from "../env";
 import { getNftChain } from "../lib/nftChains";
 import { badRequest, notFound, upstream, unsupported } from "../lib/errors";
 import { decodeDataUri } from "./avatarResolver";
-import { fetchIpfs, parseIpfs } from "./ipfs";
+import { fetchIpfs, fetchIpns, parseIpfs, parseIpns } from "./ipfs";
 import { HTTPS_IMAGE_TIMEOUT_MS, RPC_TIMEOUT_MS } from "../constants";
 
 export type NftAvatarRef = {
@@ -176,22 +176,36 @@ async function fetchMetadataJson(env: Env, uri: string): Promise<unknown> {
 		const res = await fetchIpfs(env, ref);
 		return parseJson(await res.text(), uri);
 	}
+	if (uri.startsWith("ipns://") || uri.startsWith("ipns/")) {
+		const ref = parseIpns(uri);
+		if (!ref) throw badRequest(`invalid ipns URI in token metadata: ${uri}`);
+		const res = await fetchIpns(env, ref);
+		return parseJson(await res.text(), uri);
+	}
 	if (uri.startsWith("ar://")) {
 		const rest = uri.slice("ar://".length);
 		if (!rest) throw badRequest(`malformed ar:// URI in token metadata: ${uri}`);
-		return fetchHttpsJson(`https://arweave.net/${rest}`);
+		return fetchHttpsJson(env, `https://arweave.net/${rest}`);
 	}
 	if (/^https?:\/\//i.test(uri)) {
-		return fetchHttpsJson(uri);
+		return fetchHttpsJson(env, uri);
 	}
 	throw unsupported(`unsupported metadata URI scheme: ${uri.slice(0, 40)}…`);
 }
 
-async function fetchHttpsJson(url: string): Promise<unknown> {
+function maybeOpenSeaHeaders(env: Env, url: string): HeadersInit | undefined {
+	if (env.OPENSEA_API_KEY && url.startsWith("https://api.opensea.io/")) {
+		return { "X-API-KEY": env.OPENSEA_API_KEY };
+	}
+	return undefined;
+}
+
+async function fetchHttpsJson(env: Env, url: string): Promise<unknown> {
 	const ctrl = new AbortController();
 	const timer = setTimeout(() => ctrl.abort(), HTTPS_IMAGE_TIMEOUT_MS);
 	try {
 		const res = await fetch(url, {
+			headers: maybeOpenSeaHeaders(env, url),
 			cf: { cacheTtl: 3600, cacheEverything: true },
 			signal: ctrl.signal,
 		} as RequestInit);

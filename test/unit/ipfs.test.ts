@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseIpfs } from "../../src/services/ipfs";
+import { parseIpfs, parseIpns } from "../../src/services/ipfs";
 
 describe("parseIpfs", () => {
   it("parses a v0 CID with ipfs:// prefix", () => {
@@ -32,5 +32,27 @@ describe("parseIpfs", () => {
     expect(parseIpfs("https://example.com/foo")).toBeNull();
     expect(parseIpfs("data:image/png;base64,AAAA")).toBeNull();
     expect(parseIpfs("")).toBeNull();
+  });
+});
+
+describe("parseIpns", () => {
+  it("parses ipns:// names with subpaths", () => {
+    expect(parseIpns("ipns://metadata.example/token.json")).toEqual({
+      target: "metadata.example",
+      path: "/token.json",
+    });
+  });
+
+  it("parses ipns/ names without subpaths", () => {
+    expect(parseIpns("ipns/metadata.example")).toEqual({
+      target: "metadata.example",
+      path: "",
+    });
+  });
+
+  it("rejects non-IPNS URIs", () => {
+    expect(parseIpns("ipfs://QmPChd2hVbrJ6bfo3WBcTW4iZnpHm8TEzWkLHmLpXhF68A")).toBeNull();
+    expect(parseIpns("https://example.com/foo")).toBeNull();
+    expect(parseIpns("")).toBeNull();
   });
 });

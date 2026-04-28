@@ -269,6 +269,27 @@ describe("fetchImageBytes without content-length", () => {
     expect(new Uint8Array(image.body as ArrayBuffer)).toEqual(PNG_BYTES);
   });
 
+  it("resolves IPNS images through the configured gateway", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(chunkStream([PNG_BYTES]), {
+        headers: { "content-type": "image/png" },
+      }),
+    );
+
+    const ctx = createExecutionContext();
+    const image = await fetchImageBytes(
+      testEnv,
+      "ipns://metadata.example/avatar.png",
+      ctx,
+    );
+
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      "https://gateway.example/ipns/metadata.example/avatar.png",
+    );
+    expect(image.contentType).toBe("image/png");
+    expect(new Uint8Array(image.body as ArrayBuffer)).toEqual(PNG_BYTES);
+  });
+
   it("rejects oversize HTTPS images and cancels the reader before EOF", async () => {
     const calls = { count: 0 };
     const body = overflowStream();

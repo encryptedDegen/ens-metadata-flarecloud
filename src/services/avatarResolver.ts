@@ -5,6 +5,7 @@ import { notFound, unsupported } from "../lib/errors";
 export type ResolvedUri =
   | { kind: "https"; url: string }
   | { kind: "ipfs"; uri: string }
+  | { kind: "ipns"; uri: string }
   | { kind: "data"; uri: string }
   | {
       kind: "eip155";
@@ -36,6 +37,7 @@ const ARWEAVE_GATEWAY = "https://arweave.net";
 export function classifyUri(uri: string): ResolvedUri {
   if (uri.startsWith("data:")) return { kind: "data", uri };
   if (uri.startsWith("ipfs://") || uri.startsWith("ipfs/")) return { kind: "ipfs", uri };
+  if (/^(?:ipns:\/\/|ipns\/)/i.test(uri)) return { kind: "ipns", uri };
 
   if (uri.startsWith("ar://")) {
     // Rewrite to the Arweave gateway and let the HTTPS pipeline take over —
@@ -46,14 +48,17 @@ export function classifyUri(uri: string): ResolvedUri {
     return { kind: "https", url: `${ARWEAVE_GATEWAY}/${rest}` };
   }
 
-  const eip155 = uri.match(
-    /^eip155:(\d+)\/(erc721|erc1155):(0x[a-fA-F0-9]{40})\/(\d+)$/,
+  const normalized = uri.startsWith("did:nft:")
+    ? uri.slice("did:nft:".length).replace(/_/g, "/")
+    : uri;
+  const eip155 = normalized.match(
+    /^eip155:(\d+)\/(erc721|erc1155):(0x[a-fA-F0-9]{40})\/(\d+)$/i,
   );
   if (eip155) {
     return {
       kind: "eip155",
       chainId: Number(eip155[1]),
-      namespace: eip155[2] as "erc721" | "erc1155",
+      namespace: eip155[2]!.toLowerCase() as "erc721" | "erc1155",
       contract: eip155[3]! as `0x${string}`,
       tokenId: eip155[4]!,
     };
@@ -78,4 +83,3 @@ export function decodeDataUri(uri: string): { bytes: Uint8Array; mime: string } 
   }
   return { bytes: new TextEncoder().encode(decodeURIComponent(payload)), mime };
 }
-

@@ -42,6 +42,9 @@
       "THE_GRAPH_API_KEY": {
         "description": "Optional. API key for authenticated queries against [The Graph](https://thegraph.com/studio/apikeys/). Leave blank to use public subgraph endpoints."
       },
+      "OPENSEA_API_KEY": {
+        "description": "Optional. API key for OpenSea-hosted NFT metadata used by ERC-721 and ERC-1155 avatar/header lookups."
+      },
       "RPC_API_KEY": {
         "description": "Optional. Only needed if your configured `ETH_RPC_URL` / `SEPOLIA_RPC_URL` / `HOLESKY_RPC_URL` requires a bearer token."
       },
