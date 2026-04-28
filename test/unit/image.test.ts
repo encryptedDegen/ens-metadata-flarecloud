@@ -269,6 +269,26 @@ describe("fetchImageBytes without content-length", () => {
     expect(new Uint8Array(image.body as ArrayBuffer)).toEqual(PNG_BYTES);
   });
 
+  it("resolves IPFS images with a case-insensitive scheme prefix", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(chunkStream([PNG_BYTES]), {
+        headers: { "content-type": "image/png" },
+      }),
+    );
+
+    const ctx = createExecutionContext();
+    const image = await fetchImageBytes(
+      testEnv,
+      `IPFS://${VALID_CID}/uppercase-prefix.png`,
+      ctx,
+    );
+
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      `https://gateway.example/ipfs/${VALID_CID}/uppercase-prefix.png`,
+    );
+    expect(image.contentType).toBe("image/png");
+  });
+
   it("resolves IPNS images through the configured gateway", async () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(chunkStream([PNG_BYTES]), {

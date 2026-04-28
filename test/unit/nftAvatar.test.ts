@@ -198,7 +198,7 @@ describe("resolveNftAvatar", () => {
 		]);
 	});
 
-	it("sends the configured OpenSea API key only to OpenSea metadata URLs", async () => {
+	it("sends the configured OpenSea API key only to OpenSea metadata hosts", async () => {
 		const readContract = mockReadContract();
 		readContract.mockResolvedValueOnce("https://api.opensea.io/api/v2/metadata/test");
 		const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
@@ -217,6 +217,28 @@ describe("resolveNftAvatar", () => {
 		);
 
 		expect(result.imageUri).toBe("https://images.example/opensea.png");
+		expect(fetchMock.mock.calls[0]?.[1]?.headers).toEqual({
+			"X-API-KEY": "opensea-key",
+		});
+
+		readContract.mockReset();
+		fetchMock.mockClear();
+		readContract.mockResolvedValueOnce("https://testnets-api.opensea.io/api/v2/metadata/test");
+		fetchMock.mockResolvedValueOnce(
+			new Response(JSON.stringify({ image: "https://images.example/testnets-opensea.png" })),
+		);
+
+		await resolveNftAvatar(
+			testEnv,
+			{
+				chainId: 1,
+				namespace: "erc721",
+				contract: "0x0000000000000000000000000000000000000002",
+				tokenId: "123",
+			},
+			null,
+		);
+
 		expect(fetchMock.mock.calls[0]?.[1]?.headers).toEqual({
 			"X-API-KEY": "opensea-key",
 		});
@@ -264,6 +286,32 @@ describe("resolveNftAvatar", () => {
 			"https://gateway.example/ipns/metadata.example/token.json",
 		);
 		expect(result.imageUri).toBe("ipns://images.example/avatar.png");
+	});
+
+	it("resolves IPFS metadata with a case-insensitive scheme prefix", async () => {
+		const readContract = mockReadContract();
+		readContract.mockResolvedValueOnce(
+			"IPFS://QmPChd2hVbrJ6bfo3WBcTW4iZnpHm8TEzWkLHmLpXhF68A/token.json",
+		);
+		const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+			new Response(JSON.stringify({ image: "ipfs://imageCid/avatar.png" })),
+		);
+
+		const result = await resolveNftAvatar(
+			testEnv,
+			{
+				chainId: 1,
+				namespace: "erc721",
+				contract: "0x0000000000000000000000000000000000000002",
+				tokenId: "123",
+			},
+			null,
+		);
+
+		expect(fetchMock.mock.calls[0]?.[0]).toBe(
+			"https://gateway.example/ipfs/QmPChd2hVbrJ6bfo3WBcTW4iZnpHm8TEzWkLHmLpXhF68A/token.json",
+		);
+		expect(result.imageUri).toBe("ipfs://imageCid/avatar.png");
 	});
 
 	it("resolves Arweave metadata through arweave.net", async () => {

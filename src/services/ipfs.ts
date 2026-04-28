@@ -12,11 +12,12 @@ export type IpnsRef = {
   path: string;
 };
 
-const CID_RE = /^(?:ipfs:\/\/)?(?:ipfs\/)?((?:Qm[1-9A-HJ-NP-Za-km-z]{44}|b[A-Za-z2-7]{58,}))(\/.+)?$/;
+const CID_RE = /^((?:Qm[1-9A-HJ-NP-Za-km-z]{44}|b[A-Za-z2-7]{58,}))(\/.+)?$/;
+const IPFS_PREFIX_RE = /^(?:ipfs:\/\/|ipfs\/)/i;
 const IPNS_RE = /^(?:ipns:\/\/|ipns\/)([^/]+)(\/.*)?$/i;
 
 export function parseIpfs(uri: string): IpfsRef | null {
-  const m = uri.match(CID_RE);
+  const m = uri.replace(IPFS_PREFIX_RE, "").match(CID_RE);
   if (!m) return null;
   return { cid: m[1]!, path: m[2] ?? "" };
 }

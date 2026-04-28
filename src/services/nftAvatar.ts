@@ -170,13 +170,13 @@ async function fetchMetadataJson(env: Env, uri: string): Promise<unknown> {
 		const { bytes } = decodeDataUri(uri);
 		return parseJson(new TextDecoder().decode(bytes), uri);
 	}
-	if (uri.startsWith("ipfs://") || uri.startsWith("ipfs/")) {
+	if (/^(?:ipfs:\/\/|ipfs\/)/i.test(uri)) {
 		const ref = parseIpfs(uri);
 		if (!ref) throw badRequest(`invalid ipfs URI in token metadata: ${uri}`);
 		const res = await fetchIpfs(env, ref);
 		return parseJson(await res.text(), uri);
 	}
-	if (uri.startsWith("ipns://") || uri.startsWith("ipns/")) {
+	if (/^(?:ipns:\/\/|ipns\/)/i.test(uri)) {
 		const ref = parseIpns(uri);
 		if (!ref) throw badRequest(`invalid ipns URI in token metadata: ${uri}`);
 		const res = await fetchIpns(env, ref);
@@ -194,10 +194,22 @@ async function fetchMetadataJson(env: Env, uri: string): Promise<unknown> {
 }
 
 function maybeOpenSeaHeaders(env: Env, url: string): HeadersInit | undefined {
-	if (env.OPENSEA_API_KEY && url.startsWith("https://api.opensea.io/")) {
+	const host = safeHostname(url);
+	if (
+		env.OPENSEA_API_KEY &&
+		(host === "api.opensea.io" || host === "testnets-api.opensea.io")
+	) {
 		return { "X-API-KEY": env.OPENSEA_API_KEY };
 	}
 	return undefined;
+}
+
+function safeHostname(url: string): string | null {
+	try {
+		return new URL(url).hostname.toLowerCase();
+	} catch {
+		return null;
+	}
 }
 
 async function fetchHttpsJson(env: Env, url: string): Promise<unknown> {

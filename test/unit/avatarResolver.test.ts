@@ -14,6 +14,13 @@ describe("classifyUri", () => {
     expect(classifyUri("ipfs://QmTest").kind).toBe("ipfs");
   });
 
+  it("handles IPFS URI schemes case-insensitively", () => {
+    expect(classifyUri("IPFS://QmTest")).toEqual({
+      kind: "ipfs",
+      uri: "IPFS://QmTest",
+    });
+  });
+
   it("classifies ipns URIs", () => {
     expect(classifyUri("ipns://vitalik.eth/avatar.png")).toEqual({
       kind: "ipns",

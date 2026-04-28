@@ -10,6 +10,14 @@ describe("parseIpfs", () => {
     });
   });
 
+  it("parses IPFS prefixes case-insensitively", () => {
+    const r = parseIpfs("IPFS://QmPChd2hVbrJ6bfo3WBcTW4iZnpHm8TEzWkLHmLpXhF68A/avatar.png");
+    expect(r).toEqual({
+      cid: "QmPChd2hVbrJ6bfo3WBcTW4iZnpHm8TEzWkLHmLpXhF68A",
+      path: "/avatar.png",
+    });
+  });
+
   it("parses a v0 CID with subpath", () => {
     const r = parseIpfs(
       "ipfs://QmPChd2hVbrJ6bfo3WBcTW4iZnpHm8TEzWkLHmLpXhF68A/avatar.png",

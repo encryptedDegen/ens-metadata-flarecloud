@@ -43,7 +43,7 @@ export function arweaveGatewayUrl(uri: string): string | null {
 
 export function classifyUri(uri: string): ResolvedUri {
   if (uri.startsWith("data:")) return { kind: "data", uri };
-  if (uri.startsWith("ipfs://") || uri.startsWith("ipfs/")) return { kind: "ipfs", uri };
+  if (/^(?:ipfs:\/\/|ipfs\/)/i.test(uri)) return { kind: "ipfs", uri };
   if (/^(?:ipns:\/\/|ipns\/)/i.test(uri)) return { kind: "ipns", uri };
 
   if (/^ar:\/\//i.test(uri)) {
