@@ -13,7 +13,7 @@ export type IpnsRef = {
 };
 
 const CID_RE = /^((?:Qm[1-9A-HJ-NP-Za-km-z]{44}|b[A-Za-z2-7]{58,}))(\/.+)?$/;
-const IPFS_PREFIX_RE = /^(?:ipfs:\/\/|ipfs\/)/i;
+const IPFS_PREFIX_RE = /^(?:(?:ipfs:\/\/)|(?:ipfs\/))+/i;
 const IPNS_RE = /^(?:ipns:\/\/|ipns\/)([^/]+)(\/.*)?$/i;
 
 export function parseIpfs(uri: string): IpfsRef | null {
@@ -38,6 +38,7 @@ async function fetchFromGateways(
   env: Env,
   pathForGateway: (gateway: string) => string,
   label: string,
+  cacheTtlSeconds?: number,
 ): Promise<Response> {
   const list = gateways(env);
   if (list.length === 0) throw upstream("no IPFS gateways configured");
@@ -46,12 +47,18 @@ async function fetchFromGateways(
   const attempts = list.map(async (gw, i) => {
     const url = pathForGateway(gw);
     const ctrl = controllers[i]!;
+    const signal = AbortSignal.any([
+      ctrl.signal,
+      AbortSignal.timeout(IPFS_GATEWAY_TIMEOUT_MS),
+    ]);
+    const init = cacheTtlSeconds === undefined
+      ? { signal }
+      : {
+          cf: { cacheTtl: cacheTtlSeconds, cacheEverything: true },
+          signal,
+        };
     const res = await fetch(url, {
-      cf: { cacheTtl: 3600, cacheEverything: true },
-      signal: AbortSignal.any([
-        ctrl.signal,
-        AbortSignal.timeout(IPFS_GATEWAY_TIMEOUT_MS),
-      ]),
+      ...init,
     });
     if (!res.ok) throw new Error(`${gw} -> ${res.status}`);
     return { res, index: i };
@@ -81,6 +88,7 @@ export async function fetchIpfs(env: Env, ref: IpfsRef): Promise<Response> {
     env,
     (gw) => `${gw}/ipfs/${ref.cid}${ref.path}`,
     "IPFS",
+    3600,
   );
 }
 
